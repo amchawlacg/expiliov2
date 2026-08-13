@@ -1,33 +1,19 @@
 class TransactionModel {
   final int? id;
-
   final String userId;
-
   final double amount;
-
   final String transactionType; // expense, income, transfer
   final String profileType; // personal, business
-
   final String? category;
   final String? subCategory;
   final String? note;
-
   final String? paymentMethod;
-
   final String? paymentName;
-
   final String? merchant;
-
   final DateTime date;
-
   final String source; // manual, chat, voice, receipt
-
-  final bool isSynced;
-  final bool isDeleted;
-
   final DateTime createdAt;
   final DateTime updatedAt;
-
 
   TransactionModel({
     this.id,
@@ -43,12 +29,45 @@ class TransactionModel {
     this.merchant,
     required this.date,
     required this.source,
-    this.isSynced = false,
-    this.isDeleted = false,
     required this.createdAt,
     required this.updatedAt,
   });
 
+  TransactionModel copyWith({
+    int? id,
+    String? userId,
+    double? amount,
+    String? transactionType,
+    String? profileType,
+    String? category,
+    String? subCategory,
+    String? note,
+    String? paymentMethod,
+    String? paymentName,
+    String? merchant,
+    DateTime? date,
+    String? source,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return TransactionModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      amount: amount ?? this.amount,
+      transactionType: transactionType ?? this.transactionType,
+      profileType: profileType ?? this.profileType,
+      category: category ?? this.category,
+      subCategory: subCategory ?? this.subCategory,
+      note: note ?? this.note,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentName: paymentName ?? this.paymentName,
+      merchant: merchant ?? this.merchant,
+      date: date ?? this.date,
+      source: source ?? this.source,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -65,13 +84,10 @@ class TransactionModel {
       'merchant': merchant,
       'date': date.toIso8601String(),
       'source': source,
-      'is_synced': isSynced ? 1 : 0,
-      'is_deleted': isDeleted ? 1 : 0,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
-
 
   factory TransactionModel.fromMap(Map<String, dynamic> map) {
     return TransactionModel(
@@ -88,8 +104,6 @@ class TransactionModel {
       merchant: map['merchant'],
       date: DateTime.parse(map['date']),
       source: map['source'],
-      isSynced: map['is_synced'] == 1,
-      isDeleted: map['is_deleted'] == 1,
       createdAt: DateTime.parse(map['created_at']),
       updatedAt: DateTime.parse(map['updated_at']),
     );

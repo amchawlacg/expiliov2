@@ -7,20 +7,8 @@ class TransactionService {
   Future<int> addTransaction(TransactionModel transaction) async {
     final now = DateTime.now();
 
-    final newTransaction = TransactionModel(
-      userId: transaction.userId,
-      amount: transaction.amount,
-      transactionType: transaction.transactionType,
-      profileType: transaction.profileType,
-      category: transaction.category,
-      note: transaction.note,
-      paymentMethod: transaction.paymentMethod,
-      paymentName: transaction.paymentName,
-      merchant: transaction.merchant,
-      date: transaction.date,
-      source: transaction.source,
-      isSynced: false,
-      isDeleted: false,
+    // Create new transaction instance setting current timestamps
+    final newTransaction = transaction.copyWith(
       createdAt: now,
       updatedAt: now,
     );
@@ -33,23 +21,9 @@ class TransactionService {
   }
 
   Future<int> updateTransaction(TransactionModel transaction) async {
-    final updatedTransaction = TransactionModel(
-      id: transaction.id,
-      userId: transaction.userId,
-      amount: transaction.amount,
-      transactionType: transaction.transactionType,
-      profileType: transaction.profileType,
-      category: transaction.category,
-      note: transaction.note,
-      paymentMethod: transaction.paymentMethod,
-      paymentName: transaction.paymentName,
-      merchant: transaction.merchant,
-      date: transaction.date,
-      source: transaction.source,
-      isSynced: false, // important for sync later
-      isDeleted: transaction.isDeleted,
-      createdAt: transaction.createdAt, // keep original created date
-      updatedAt: DateTime.now(), // update modification time
+    // Only update the modification timestamp while leaving everything else intact
+    final updatedTransaction = transaction.copyWith(
+      updatedAt: DateTime.now(),
     );
 
     return await _database.updateTransaction(updatedTransaction);
@@ -60,6 +34,7 @@ class TransactionService {
   }
 
   Future<int> deleteTransaction(int id) async {
+    // DatabaseHelper performs hard delete locally and enqueues 'DELETE' action
     return await _database.deleteTransaction(id);
   }
 
@@ -75,9 +50,6 @@ class TransactionService {
     return await _database.getProfileSummary(month, year);
   }
 
-  // --- NEW METHOD FOR CALENDAR HIGH-LIGHTING ---
-  /// Fetches all transactions and filters/aggregates net totals for a given month.
-  // Replace the prior memory-heavy method with this clean pass-through:
   Future<Map<DateTime, double>> getDailyTotalsForMonth(DateTime month) async {
     return await _database.getDailyTotalsForMonth(month);
   }
