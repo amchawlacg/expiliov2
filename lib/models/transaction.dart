@@ -1,3 +1,5 @@
+import 'attachment.dart';
+
 class TransactionModel {
   final int? id;
   final String userId;
@@ -14,6 +16,7 @@ class TransactionModel {
   final String source; // manual, chat, voice, receipt
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<AttachmentModel> attachments; // Added attachments list
 
   TransactionModel({
     this.id,
@@ -31,6 +34,7 @@ class TransactionModel {
     required this.source,
     required this.createdAt,
     required this.updatedAt,
+    this.attachments = const [], // Default to empty list
   });
 
   TransactionModel copyWith({
@@ -49,6 +53,7 @@ class TransactionModel {
     String? source,
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<AttachmentModel>? attachments,
   }) {
     return TransactionModel(
       id: id ?? this.id,
@@ -66,12 +71,13 @@ class TransactionModel {
       source: source ?? this.source,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      attachments: attachments ?? this.attachments,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
+      if (id != null) 'id': id,
       'user_id': userId,
       'amount': amount,
       'transaction_type': transactionType,
@@ -89,23 +95,27 @@ class TransactionModel {
     };
   }
 
-  factory TransactionModel.fromMap(Map<String, dynamic> map) {
+  factory TransactionModel.fromMap(
+    Map<String, dynamic> map, {
+    List<AttachmentModel> attachments = const [],
+  }) {
     return TransactionModel(
-      id: map['id'],
-      userId: map['user_id'],
-      amount: map['amount'],
-      transactionType: map['transaction_type'],
-      profileType: map['profile_type'],
-      category: map['category'],
-      subCategory: map['subcategory'],
-      note: map['note'],
-      paymentMethod: map['payment_method'],
-      paymentName: map['payment_name'],
-      merchant: map['merchant'],
-      date: DateTime.parse(map['date']),
-      source: map['source'],
-      createdAt: DateTime.parse(map['created_at']),
-      updatedAt: DateTime.parse(map['updated_at']),
+      id: map['id'] as int?,
+      userId: map['user_id'] as String,
+      amount: (map['amount'] as num).toDouble(),
+      transactionType: map['transaction_type'] as String,
+      profileType: map['profile_type'] as String,
+      category: map['category'] as String?,
+      subCategory: map['subcategory'] as String?,
+      note: map['note'] as String?,
+      paymentMethod: map['payment_method'] as String?,
+      paymentName: map['payment_name'] as String?,
+      merchant: map['merchant'] as String?,
+      date: DateTime.parse(map['date'] as String),
+      source: map['source'] as String,
+      createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: DateTime.parse(map['updated_at'] as String),
+      attachments: attachments,
     );
   }
 }

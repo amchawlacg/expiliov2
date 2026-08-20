@@ -4,19 +4,23 @@ import '../constants/app_colors.dart';
 class TransactionOptionTile extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String value;
+  final String? value;
+  final Widget? trailingWidget;
   final VoidCallback onTap;
 
   const TransactionOptionTile({
     super.key,
     required this.icon,
     required this.title,
-    required this.value,
+    this.value,
+    this.trailingWidget,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -29,23 +33,22 @@ class TransactionOptionTile extends StatelessWidget {
           vertical: 14,
         ),
         decoration: BoxDecoration(
-          color: AppColors.card,
+          color: colors.card,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
           children: [
-            // Modified Container to match the input fields exactly
             Container(
               height: 36,
               width: 36,
-              decoration: const BoxDecoration(
-                color: Colors.black, // Changed from AppColors.cardLight to black
+              decoration: BoxDecoration(
+                color: colors.iconCircle,
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 icon,
                 size: 20,
-                color: Colors.white, // Changed from AppColors.purple to white
+                color: colors.textPrimary,
               ),
             ),
 
@@ -53,29 +56,32 @@ class TransactionOptionTile extends StatelessWidget {
 
             Text(
               title,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16, // Upgraded from 15 to match input field text size
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
 
             const Spacer(),
 
-            Text(
-              value,
-              style: const TextStyle(
-                color: AppColors.textPrimary, // Changed from textSecondary to textPrimary (White)
-                fontSize: 14,
-                fontWeight: FontWeight.w500, // Optio
+            if (trailingWidget != null)
+              trailingWidget!
+            else if (value != null)
+              Text(
+                value!,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
 
             const SizedBox(width: 8),
 
-            const Icon(
+            Icon(
               Icons.chevron_right,
-              color: AppColors.textSecondary,
+              color: colors.textSecondary,
             ),
           ],
         ),

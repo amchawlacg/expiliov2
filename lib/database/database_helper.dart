@@ -5,6 +5,7 @@ import '../models/transaction.dart';
 import '../models/attachment.dart';
 import '../models/message.dart';
 import '../models/sync_queue_item.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -23,12 +24,20 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String fileName) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, fileName);
+    String path;
+
+    if (kIsWeb) {
+      // In web browsers, sqflite_common_ffi_web uses the filename directly as the IndexedDB store key
+      path = fileName;
+    } else {
+      // On iOS, Android, and Desktop, use the system databases directory path
+      final dbPath = await getDatabasesPath();
+      path = join(dbPath, fileName);
+    }
 
     return await openDatabase(
       path,
-      version: 6, // Upgraded to v6 for sync_queue
+      version: 7, // Upgraded to v7 for attachment thumbnails
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -52,6 +61,33 @@ class DatabaseHelper {
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER,
+        file_name TEXT NOT NULL,
+        local_path TEXT,
+        local_thumbnail_path TEXT,
+        cloud_url TEXT,
+        cloud_thumbnail_url TEXT,
+        file_type TEXT,
+        is_synced INTEGER DEFAULT 0,
+        is_deleted INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TEXT NOT NULL
       )
     ''');
 
@@ -113,81 +149,136 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await _createSyncQueueTable(db);
     }
+
+    if (oldVersion < 7) {
+      await db.execute('ALTER TABLE attachments ADD COLUMN local_thumbnail_path TEXT');
+      await db.execute('ALTER TABLE attachments ADD COLUMN cloud_thumbnail_url TEXT');
+    }
   }
 
-  // --- ATOMIC TRANSACTION MUTATIONS WITH SYNC QUEUE ---
+  // --- ATOMIC TRANSACTION & ATTACHMENT MUTATIONS WITH SYNC QUEUE ---
 
   Future<int> insertTransaction(TransactionModel transaction) async {
-  final db = await instance.database;
+    final db = await instance.database;
 
-  return await db.transaction((txn) async {
-    final id = await txn.insert('transactions', transaction.toMap());
+    return await db.transaction((txn) async {
+      final id = await txn.insert('transactions', transaction.toMap());
 
-    // Call smart queue helper instead of direct insertion
-    await _enqueueSyncAction(
-      txn,
-      entityId: id,
-      action: 'CREATE',
-      payload: transaction.copyWith(id: id).toMap(),
-    );
-
-    return id;
-  });
-}
-
-Future<int> updateTransaction(TransactionModel transaction) async {
-  final db = await instance.database;
-
-  return await db.transaction((txn) async {
-    final rows = await txn.update(
-      'transactions',
-      transaction.toMap(),
-      where: 'id = ?',
-      whereArgs: [transaction.id],
-    );
-
-    // Call smart queue helper
-    if (transaction.id != null) {
       await _enqueueSyncAction(
         txn,
-        entityId: transaction.id!,
-        action: 'UPDATE',
-        payload: transaction.toMap(),
+        entityType: 'transaction',
+        entityId: id,
+        action: 'CREATE',
+        payload: transaction.copyWith(id: id).toMap(),
       );
-    }
 
-    return rows;
-  });
-}
+      return id;
+    });
+  }
 
-Future<int> deleteTransaction(int id) async {
-  final db = await instance.database;
+  /// Inserts a transaction and its associated attachments inside a single atomic DB transaction
+  Future<int> insertTransactionWithAttachments(
+    TransactionModel transaction,
+    List<AttachmentModel> attachments,
+  ) async {
+    final db = await instance.database;
 
-  return await db.transaction((txn) async {
-    // Local hard delete
-    final rows = await txn.delete(
-      'transactions',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.transaction((txn) async {
+      // 1. Insert Transaction
+      final transId = await txn.insert('transactions', transaction.toMap());
+      final savedTransaction = transaction.copyWith(id: transId);
 
-    // Call smart queue helper
-    await _enqueueSyncAction(
-      txn,
-      entityId: id,
-      action: 'DELETE',
-    );
+      // 2. Queue Transaction CREATE
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'transaction',
+        entityId: transId,
+        action: 'CREATE',
+        payload: savedTransaction.toMap(),
+      );
 
-    return rows;
-  });
-}
+      // 3. Insert and queue each attachment
+      for (var attachment in attachments) {
+        final updatedAttachment = attachment.copyWith(transactionId: transId);
+        final attachId = await txn.insert('attachments', updatedAttachment.toMap());
+        final savedAttachment = updatedAttachment.copyWith(id: attachId);
 
-  // --- READ QUERIES (NO LONGER FILTER ON IS_DELETED) ---
+        await _enqueueSyncAction(
+          txn,
+          entityType: 'attachment',
+          entityId: attachId,
+          action: 'CREATE',
+          payload: savedAttachment.toMap(),
+        );
+      }
+
+      return transId;
+    });
+  }
+
+  Future<int> updateTransaction(TransactionModel transaction) async {
+    final db = await instance.database;
+
+    return await db.transaction((txn) async {
+      final rows = await txn.update(
+        'transactions',
+        transaction.toMap(),
+        where: 'id = ?',
+        whereArgs: [transaction.id],
+      );
+
+      if (transaction.id != null) {
+        await _enqueueSyncAction(
+          txn,
+          entityType: 'transaction',
+          entityId: transaction.id!,
+          action: 'UPDATE',
+          payload: transaction.toMap(),
+        );
+      }
+
+      return rows;
+    });
+  }
+
+  Future<int> deleteTransaction(int id) async {
+    final db = await instance.database;
+
+    return await db.transaction((txn) async {
+      final rows = await txn.delete(
+        'transactions',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'transaction',
+        entityId: id,
+        action: 'DELETE',
+      );
+
+      return rows;
+    });
+  }
+
+  // --- READ QUERIES WITH ATTACHMENT HYDRATION ---
 
   Future<List<TransactionModel>> getTransactions() async {
     final db = await instance.database;
     final result = await db.query('transactions', orderBy: 'date DESC');
-    return result.map((map) => TransactionModel.fromMap(map)).toList();
+
+    List<TransactionModel> transactions = [];
+    for (var map in result) {
+      final transId = map['id'] as int?;
+      List<AttachmentModel> attachments = [];
+      if (transId != null) {
+        attachments = await getAttachments(transId);
+      }
+      transactions.add(TransactionModel.fromMap(map, attachments: attachments));
+    }
+
+    return transactions;
   }
 
   Future<List<TransactionModel>> getTransactionsByDate(DateTime date) async {
@@ -202,7 +293,17 @@ Future<int> deleteTransaction(int id) async {
       orderBy: 'date DESC',
     );
 
-    return result.map((map) => TransactionModel.fromMap(map)).toList();
+    List<TransactionModel> transactions = [];
+    for (var map in result) {
+      final transId = map['id'] as int?;
+      List<AttachmentModel> attachments = [];
+      if (transId != null) {
+        attachments = await getAttachments(transId);
+      }
+      transactions.add(TransactionModel.fromMap(map, attachments: attachments));
+    }
+
+    return transactions;
   }
 
   // --- QUEUE MANAGEMENT FUNCTIONS ---
@@ -216,6 +317,79 @@ Future<int> deleteTransaction(int id) async {
   Future<int> deleteSyncQueueItem(int id) async {
     final db = await instance.database;
     return await db.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- ATTACHMENT MANAGEMENT FUNCTIONS ---
+
+  Future<int> insertAttachment(AttachmentModel attachment) async {
+    final db = await instance.database;
+
+    return await db.transaction((txn) async {
+      final id = await txn.insert('attachments', attachment.toMap());
+      final savedAttachment = attachment.copyWith(id: id);
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'attachment',
+        entityId: id,
+        action: 'CREATE',
+        payload: savedAttachment.toMap(),
+      );
+
+      return id;
+    });
+  }
+
+  Future<List<AttachmentModel>> getAttachments(int transactionId) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'attachments',
+      where: 'transaction_id = ? AND is_deleted = ?',
+      whereArgs: [transactionId, 0],
+      orderBy: 'created_at DESC',
+    );
+    return result.map((map) => AttachmentModel.fromMap(map)).toList();
+  }
+
+  Future<int> updateAttachmentSyncStatus({
+    required int id,
+    required String cloudUrl,
+    required String cloudThumbnailUrl,
+  }) async {
+    final db = await instance.database;
+    return await db.update(
+      'attachments',
+      {
+        'cloud_url': cloudUrl,
+        'cloud_thumbnail_url': cloudThumbnailUrl,
+        'is_synced': 1,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteAttachment(int id) async {
+    final db = await instance.database;
+
+    return await db.transaction((txn) async {
+      final rows = await txn.update(
+        'attachments',
+        {'is_deleted': 1, 'is_synced': 0, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'attachment',
+        entityId: id,
+        action: 'DELETE',
+      );
+
+      return rows;
+    });
   }
 
   // --- OTHER DATABASE FUNCTIONS ---
@@ -304,32 +478,6 @@ Future<int> deleteTransaction(int id) async {
     return profileMap;
   }
 
-  Future<int> insertAttachment(AttachmentModel attachment) async {
-    final db = await instance.database;
-    return await db.insert('attachments', attachment.toMap());
-  }
-
-  Future<List<AttachmentModel>> getAttachments(int transactionId) async {
-    final db = await instance.database;
-    final result = await db.query(
-      'attachments',
-      where: 'transaction_id = ? AND is_deleted = ?',
-      whereArgs: [transactionId, 0],
-      orderBy: 'created_at DESC',
-    );
-    return result.map((map) => AttachmentModel.fromMap(map)).toList();
-  }
-
-  Future<int> deleteAttachment(int id) async {
-    final db = await instance.database;
-    return await db.update(
-      'attachments',
-      {'is_deleted': 1, 'is_synced': 0, 'updated_at': DateTime.now().toIso8601String()},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
   Future<int> insertMessage(MessageModel message) async {
     final db = await instance.database;
     return await db.insert('messages', message.toMap());
@@ -341,67 +489,65 @@ Future<int> deleteTransaction(int id) async {
     return result.map((map) => MessageModel.fromMap(map)).toList();
   }
 
+  // --- GENERIC SYNC QUEUE HELPER ---
+
   Future<void> _enqueueSyncAction(
-  DatabaseExecutor txn, {
-  required int entityId,
-  required String action,
-  Map<String, dynamic>? payload,
-}) async {
-  // Check if there is already an un-synced operation for this transaction
-  final existingQueue = await txn.query(
-    'sync_queue',
-    where: 'entity_type = ? AND entity_id = ?',
-    whereArgs: ['transaction', entityId],
-    orderBy: 'id ASC',
-  );
+    DatabaseExecutor txn, {
+    String entityType = 'transaction',
+    required int entityId,
+    required String action,
+    Map<String, dynamic>? payload,
+  }) async {
+    final existingQueue = await txn.query(
+      'sync_queue',
+      where: 'entity_type = ? AND entity_id = ?',
+      whereArgs: [entityType, entityId],
+      orderBy: 'id ASC',
+    );
 
-  if (existingQueue.isEmpty) {
-    // Standard insert if no pending operations exist
-    await txn.insert('sync_queue', {
-      'entity_type': 'transaction',
-      'entity_id': entityId,
-      'action': action,
-      'payload': payload != null ? jsonEncode(payload) : null,
-      'created_at': DateTime.now().toIso8601String(),
-    });
-    return;
-  }
-
-  final existingItem = existingQueue.first;
-  final int existingId = existingItem['id'] as int;
-  final String existingAction = existingItem['action'] as String;
-
-  if (action == 'UPDATE') {
-    if (existingAction == 'CREATE' || existingAction == 'UPDATE') {
-      // Keep action type, but overwrite payload with latest data
-      await txn.update(
-        'sync_queue',
-        {'payload': jsonEncode(payload)},
-        where: 'id = ?',
-        whereArgs: [existingId],
-      );
+    if (existingQueue.isEmpty) {
+      await txn.insert('sync_queue', {
+        'entity_type': entityType,
+        'entity_id': entityId,
+        'action': action,
+        'payload': payload != null ? jsonEncode(payload) : null,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      return;
     }
-  } else if (action == 'DELETE') {
-    if (existingAction == 'CREATE') {
-      // Created and deleted offline -> Purge queue item (no cloud request needed)
-      await txn.delete(
-        'sync_queue',
-        where: 'id = ?',
-        whereArgs: [existingId],
-      );
-    } else if (existingAction == 'UPDATE') {
-      // Replace pending UPDATE with a DELETE action
-      await txn.update(
-        'sync_queue',
-        {
-          'action': 'DELETE',
-          'payload': null,
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [existingId],
-      );
+
+    final existingItem = existingQueue.first;
+    final int existingId = existingItem['id'] as int;
+    final String existingAction = existingItem['action'] as String;
+
+    if (action == 'UPDATE') {
+      if (existingAction == 'CREATE' || existingAction == 'UPDATE') {
+        await txn.update(
+          'sync_queue',
+          {'payload': jsonEncode(payload)},
+          where: 'id = ?',
+          whereArgs: [existingId],
+        );
+      }
+    } else if (action == 'DELETE') {
+      if (existingAction == 'CREATE') {
+        await txn.delete(
+          'sync_queue',
+          where: 'id = ?',
+          whereArgs: [existingId],
+        );
+      } else if (existingAction == 'UPDATE') {
+        await txn.update(
+          'sync_queue',
+          {
+            'action': 'DELETE',
+            'payload': null,
+            'created_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [existingId],
+        );
+      }
     }
   }
-}
 }

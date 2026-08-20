@@ -1,32 +1,43 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart'; // Adds kIsWeb check
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart'; // Web SQLite support
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
+import 'constants/app_colors.dart';
 import 'database/database_helper.dart';
 import 'screens/main_screen.dart';
-import 'screens/transaction_list_screen.dart';
-import 'services/sync_service.dart'; // Added SyncService import
+import 'services/sync_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set up the correct SQLite factory depending on platform
+  // 1. Initialize SQLite Database Engine
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
-  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  } else {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
   }
 
-  // Initialize SQLite Database
+  // 2. Open SQLite Database
   await DatabaseHelper.instance.database;
 
-  // Initialize and run SyncService
+  // 3. Initialize SyncService safely
   final syncService = SyncService();
-  syncService.initializeAutoSync(); // Starts listening for network reconnections
-  await syncService.processSyncQueue(); // Initial sync run on startup
+
+  if (!kIsWeb) {
+    syncService.initializeAutoSync();
+  }
+
+  // Initial sync attempt
+  try {
+    await syncService.processSyncQueue();
+  } catch (e) {
+    debugPrint('Initial sync skipped/failed: $e');
+  }
 
   runApp(const MyApp());
 }
@@ -36,9 +47,20 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: MainScreen(),
+      themeMode: ThemeMode.system, // Automatically follows system dark/light mode
+      theme: ThemeData(
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: AppColorScheme.light.background,
+        extensions: const [AppColorScheme.light],
+      ),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: AppColorScheme.dark.background,
+        extensions: const [AppColorScheme.dark],
+      ),
+      home: const MainScreen(),
     );
   }
 }
