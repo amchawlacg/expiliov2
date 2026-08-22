@@ -45,11 +45,11 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-
-
+    final colors = context.colors;
+    
     return Scaffold(
 
-      backgroundColor: AppColors.background,
+      backgroundColor: colors.background,
 
 
       body: screens[selectedIndex],
@@ -59,14 +59,14 @@ class _MainScreenState extends State<MainScreen> {
 
         height: 78,
 
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
 
-          color: AppColors.card,
+          color: colors.card,
 
           border: Border(
 
             top: BorderSide(
-              color: AppColors.cardLight,
+              color: colors.cardLight,
               width: 1,
             ),
 
@@ -144,7 +144,7 @@ class _MainScreenState extends State<MainScreen> {
 
 
     final bool selected = selectedIndex == index;
-
+    final colors = context.colors;
 
     return GestureDetector(
 
@@ -185,8 +185,8 @@ class _MainScreenState extends State<MainScreen> {
               colorFilter: ColorFilter.mode(
 
                 selected
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
+                    ? colors.textPrimary
+                    : colors.textSecondary,
 
                 BlendMode.srcIn,
 
@@ -210,8 +210,8 @@ class _MainScreenState extends State<MainScreen> {
                 fontSize: 10,
 
                 color: selected
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
+                    ? colors.textPrimary
+                    : colors.textSecondary,
 
               ),
 

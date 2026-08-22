@@ -97,7 +97,7 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
   // ☀️ LIGHT THEME PALETTE
   // ===========================================================================
   static const light = AppColorScheme(
-    background: Color(0xffF8F9FA),
+    background: Color.fromARGB(255, 255, 146, 146),
     card: Color(0xffFFFFFF),
     cardLight: Color(0xffF1F3F5),
     primary: Color(0xff5C940D),

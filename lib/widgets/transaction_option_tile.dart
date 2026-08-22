@@ -23,18 +23,14 @@ class TransactionOptionTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
       child: Container(
-        margin: const EdgeInsets.only(
-          bottom: 10,
-        ),
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
         ),
         decoration: BoxDecoration(
           color: colors.card,
-          borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
           children: [

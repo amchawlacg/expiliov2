@@ -57,7 +57,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
     }
   }
 
-  Widget _buildFullImage(AttachmentModel attachment) {
+  Widget _buildFullImage(AttachmentModel attachment, AppColorScheme colors) {
     if (attachment.localPath != null &&
         attachment.localPath!.isNotEmpty &&
         File(attachment.localPath!).existsSync()) {
@@ -72,23 +72,24 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
         fit: BoxFit.contain,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.white),
+          return Center(
+            child: CircularProgressIndicator(color: colors.primary),
           );
         },
-        errorBuilder: (_, __, ___) => const Center(
-          child: Icon(Icons.broken_image, color: Colors.white54, size: 60),
+        errorBuilder: (_, __, ___) => Center(
+          child: Icon(Icons.broken_image, color: colors.textHint, size: 60),
         ),
       );
     } else {
-      return const Center(
-        child: Icon(Icons.broken_image, color: Colors.white54, size: 60),
+      return Center(
+        child: Icon(Icons.broken_image, color: colors.textHint, size: 60),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final hasMultiple = widget.attachments.length > 1;
 
     return CallbackShortcuts(
@@ -99,25 +100,25 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          backgroundColor: Colors.black,
+          backgroundColor: colors.background,
           appBar: AppBar(
-            backgroundColor: Colors.black,
+            backgroundColor: colors.background,
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              icon: Icon(Icons.arrow_back, color: colors.textPrimary),
               onPressed: () => Navigator.pop(context),
             ),
             title: Text(
               widget.attachments.isEmpty
                   ? "Attachments"
                   : "${_currentIndex + 1} / ${widget.attachments.length}",
-              style: const TextStyle(color: Colors.white, fontSize: 16),
+              style: TextStyle(color: colors.textPrimary, fontSize: 16),
             ),
             centerTitle: true,
             actions: [
               if (widget.attachments.isNotEmpty)
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  icon: Icon(Icons.delete_outline, color: colors.expense),
                   onPressed: () {
                     final deleteIdx = _currentIndex;
                     widget.onDelete(deleteIdx);
@@ -135,10 +136,10 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
             ],
           ),
           body: widget.attachments.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     "No attachments",
-                    style: TextStyle(color: Colors.white54),
+                    style: TextStyle(color: colors.textSecondary),
                   ),
                 )
               : Stack(
@@ -158,7 +159,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                           minScale: 0.8,
                           maxScale: 4.0,
                           child: Center(
-                            child: _buildFullImage(item),
+                            child: _buildFullImage(item, colors),
                           ),
                         );
                       },
@@ -172,10 +173,10 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                         bottom: 0,
                         child: Center(
                           child: CircleAvatar(
-                            backgroundColor: Colors.black54,
+                            backgroundColor: colors.iconCircle,
                             radius: 24,
                             child: IconButton(
-                              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                              icon: Icon(Icons.arrow_back_ios_new, color: colors.textPrimary, size: 20),
                               onPressed: _goToPrevious,
                             ),
                           ),
@@ -190,10 +191,10 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                         bottom: 0,
                         child: Center(
                           child: CircleAvatar(
-                            backgroundColor: Colors.black54,
+                            backgroundColor: colors.iconCircle,
                             radius: 24,
                             child: IconButton(
-                              icon: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 20),
+                              icon: Icon(Icons.arrow_forward_ios, color: colors.textPrimary, size: 20),
                               onPressed: _goToNext,
                             ),
                           ),
@@ -204,21 +205,21 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
           bottomNavigationBar: SafeArea(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              color: Colors.black.withAlpha(200),
+              color: colors.card,
               child: SizedBox(
                 height: 50,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.purple,
+                    backgroundColor: colors.purple,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: const Icon(Icons.add_photo_alternate, color: Colors.white),
-                  label: const Text(
+                  icon: Icon(Icons.add_photo_alternate, color: colors.textPrimary),
+                  label: Text(
                     "Attach Another File",
                     style: TextStyle(
-                      color: Colors.white,
+                      color: colors.textPrimary,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

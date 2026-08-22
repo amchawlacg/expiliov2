@@ -25,166 +25,155 @@ class _TransactionCardState extends State<TransactionCard> {
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
     final isExpense = transaction.transactionType.toLowerCase() == "expense";
+    final colors = context.colors;
 
     // 1. Setup colors & indicators based on income/expense dynamic
-    final accentColor = isExpense ? AppColors.expense : AppColors.income;
+    final accentColor = isExpense ? colors.expense : colors.income;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovering = true),
-      onExit: (_) => setState(() => isHovering = false),
-      child: Center(
-        child: AnimatedScale(
-          scale: isHovering ? 1.02 : 1,
-          duration: const Duration(milliseconds: 150),
-          child: InkWell(
-            onTap: widget.onTap,
-            hoverColor: Colors.transparent,
-            splashColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 460), // Slightly wider to fit metadata
+    return InkWell(
+  onTap: widget.onTap,
+  hoverColor: Colors.transparent,
+  splashColor: Colors.transparent,
+  highlightColor: Colors.transparent,
+  child: Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+    decoration: BoxDecoration(
+      color: colors.card,
+    ),
+    child: Row(
+      children: [
+        // Left-edge Type Indicator Bar
+        const SizedBox(width: 12),
 
-              // 🌟 Reduced horizontal space outside the card from 12 to 8
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        // Circular Icon Avatar
+        CircleAvatar(
+          radius: 22,
+          backgroundColor: _getCategoryColor(
+            transaction.category ?? "",
+          ).withOpacity(0.15),
+          child: Icon(
+            _categoryIcon(transaction.category ?? ""),
+            color: _getCategoryColor(transaction.category ?? ""),
+            size: 20,
+          ),
+        ),
 
-              // 🌟 Reduced horizontal space inside the card from 16 to 10
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+        const SizedBox(width: 14),
 
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(18),
+        // Middle details cluster
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                transaction.category ?? "Unknown",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              clipBehavior: Clip.antiAlias, // Ensures the indicator tag clips nicely
-              child: Row(
+              if (transaction.merchant?.isNotEmpty == true) ...[
+                const SizedBox(height: 2),
+                Text(
+                  transaction.merchant!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.textSecondary.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 6),
+              // Horizontal meta row (Date | Method | Source)
+              Row(
                 children: [
-                  // Left-edge Type Indicator Bar
-
-
-                  const SizedBox(width: 12),
-
-                  // Circular Icon Avatar
-                  // Circular Icon Avatar
-                  CircleAvatar(
-                    radius: 22,
-                    // 🌟 Dynamic background using the unique category color
-                    backgroundColor: _getCategoryColor(transaction.category ?? "").withOpacity(0.15),
-                    child: Icon(
-                      _categoryIcon(transaction.category ?? ""),
-                      // 🌟 Dynamic icon color using the unique category color
-                      color: _getCategoryColor(transaction.category ?? ""),
-                      size: 20,
+                  Icon(
+                    Icons.calendar_today,
+                    size: 12,
+                    color: colors.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 11,
                     ),
                   ),
-
-                  const SizedBox(width: 14),
-
-                  // Middle details cluster
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          transaction.category ?? "Unknown",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (transaction.merchant?.isNotEmpty == true) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            transaction.merchant!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        // Horizontal meta row (Date | Method | Source)
-                        Row(
-                          children: [
-                            Icon(Icons.calendar_today, size: 12, color: AppColors.textSecondary),
-                            const SizedBox(width: 4),
-                            Text(
-                              "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
-                              style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                            ),
-                            Text("  |  ", style: TextStyle(color: AppColors.textSecondary.withOpacity(0.3), fontSize: 11)),
-                            Icon(_getPaymentIcon(transaction.paymentMethod), size: 12, color: AppColors.textSecondary),
-                            const SizedBox(width: 4),
-                            Text(
-                              transaction.paymentMethod ?? "Cash",
-                              style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ],
+                  Text(
+                    "  |  ",
+                    style: TextStyle(
+                      color: colors.textSecondary.withOpacity(0.3),
+                      fontSize: 11,
                     ),
                   ),
-
-                  const SizedBox(width: 8),
-
-                  // Right Action / Amount Layout Block
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisAlignment: MainAxisAlignment.center, // 👈 ADD THIS LINE
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              "${isExpense ? "-" : "+"}\$${transaction.amount}",
-                              style: TextStyle(
-                                color: accentColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                            // Menu shifted safely out of the column base next to amount
-                            PopupMenuButton(
-                              padding: EdgeInsets.zero,
-                              color: AppColors.cardLight,
-                              icon: Icon(
-                                Icons.more_vert,
-                                size: 18,
-                                color: Colors.grey.shade400,
-                              ),
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: "delete",
-                                  child: Text("Delete"),
-                                ),
-                              ],
-                              onSelected: (value) {
-                                if (value == "delete") widget.onDelete();
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
+                  Icon(
+                    _getPaymentIcon(transaction.paymentMethod),
+                    size: 12,
+                    color: colors.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    transaction.paymentMethod ?? "Cash",
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 11,
                     ),
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
-      ),
-    );
+
+        const SizedBox(width: 8),
+
+        // Right Action / Amount Layout Block
+        Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "${isExpense ? "-" : "+"}\$${transaction.amount}",
+                style: TextStyle(
+                  color: accentColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  ),
+);
   }
 
   // Helper parsing methods
   String _getMonthName(int month) {
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     return months[month - 1];
   }
 

@@ -37,7 +37,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 7, // Upgraded to v7 for attachment thumbnails
+      version: 8, // Upgraded to v8 for custom categories
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -90,6 +90,18 @@ class DatabaseHelper {
         created_at TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+  CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    subcategories TEXT NOT NULL, -- Stored as JSON string
+    icon_name TEXT,
+    is_custom INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+''');
 
     await _createSyncQueueTable(db);
   }
@@ -154,6 +166,20 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE attachments ADD COLUMN local_thumbnail_path TEXT');
       await db.execute('ALTER TABLE attachments ADD COLUMN cloud_thumbnail_url TEXT');
     }
+
+    if (oldVersion < 8) {
+  await db.execute('''
+    CREATE TABLE categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      subcategories TEXT NOT NULL,
+      icon_name TEXT,
+      is_custom INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  ''');
+}
   }
 
   // --- ATOMIC TRANSACTION & ATTACHMENT MUTATIONS WITH SYNC QUEUE ---
@@ -550,4 +576,82 @@ class DatabaseHelper {
       }
     }
   }
+
+
+  // --- CATEGORY CRUD OPERATIONS ---
+
+Future<List<Map<String, dynamic>>> getCategories() async {
+  final db = await instance.database;
+  return await db.query('categories', orderBy: 'id ASC');
+}
+
+Future<int> insertCategory(Map<String, dynamic> categoryMap) async {
+  final db = await instance.database;
+  return await db.transaction((txn) async {
+    final id = await txn.insert('categories', categoryMap);
+    final payload = Map<String, dynamic>.from(categoryMap)..['id'] = id;
+
+    await _enqueueSyncAction(
+      txn,
+      entityType: 'category',
+      entityId: id,
+      action: 'CREATE',
+      payload: payload,
+    );
+    return id;
+  });
+}
+
+Future<int> updateCategory(int id, Map<String, dynamic> categoryMap) async {
+  final db = await instance.database;
+  return await db.transaction((txn) async {
+    final rows = await txn.update(
+      'categories',
+      categoryMap,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    await _enqueueSyncAction(
+      txn,
+      entityType: 'category',
+      entityId: id,
+      action: 'UPDATE',
+      payload: categoryMap,
+    );
+    return rows;
+  });
+}
+
+Future<int> deleteCategory(int id) async {
+  final db = await instance.database;
+  return await db.transaction((txn) async {
+    final rows = await txn.delete(
+      'categories',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    await _enqueueSyncAction(
+      txn,
+      entityType: 'category',
+      entityId: id,
+      action: 'DELETE',
+    );
+    return rows;
+  });
+}
+
+Future<void> seedInitialCategories(List<Map<String, dynamic>> defaultCategories) async {
+  final db = await instance.database;
+  final batch = db.batch();
+  for (var category in defaultCategories) {
+    batch.insert(
+      'categories',
+      category,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+  await batch.commit(noResult: true);
+}
 }

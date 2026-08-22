@@ -12,23 +12,14 @@ import '../constants/app_colors.dart';
 class TransactionListScreen extends StatefulWidget {
   const TransactionListScreen({super.key});
 
-
   @override
-  State<TransactionListScreen> createState() =>
-      _TransactionListScreenState();
+  State<TransactionListScreen> createState() => _TransactionListScreenState();
 }
 
-
-class _TransactionListScreenState
-    extends State<TransactionListScreen> {
-
-
-  final TransactionService transactionService =
-  TransactionService();
-
+class _TransactionListScreenState extends State<TransactionListScreen> {
+  final TransactionService transactionService = TransactionService();
 
   List<TransactionModel> transactions = [];
-
 
   @override
   void initState() {
@@ -37,77 +28,37 @@ class _TransactionListScreenState
     loadTransactions();
   }
 
-
   Future<void> loadTransactions() async {
-
-    final data =
-    await transactionService.getTransactions();
-
+    final data = await transactionService.getTransactions();
 
     setState(() {
       transactions = data;
     });
-
   }
-
-
 
   @override
   Widget build(BuildContext context) {
-
+    final colors = context.colors;
     return Scaffold(
-
-      backgroundColor:
-      AppColors.background,
-
-
+      backgroundColor: colors.background,
       appBar: AppBar(
-
-        backgroundColor:
-        AppColors.background,
-
-
-        elevation:
-        0,
-
-
-        iconTheme:
-        const IconThemeData(
-          color:
-          AppColors.textPrimary,
-        ),
-
-
-        title: const Text(
-
+        backgroundColor: colors.background,
+        elevation: 0,
+        iconTheme: IconThemeData(color: colors.textPrimary),
+        title: Text(
           "Transactions",
-
-          style:
-          TextStyle(
-            color:
-            AppColors.textPrimary,
-          ),
-
+          style: TextStyle(color: colors.textPrimary),
         ),
 
         actions: [
-
           // 1. NEW INSIGHTS BUTTON
           IconButton(
-
-            icon:
-            const Icon(
-              Icons.bar_chart,
-              color:
-              AppColors.textSecondary,
-            ),
+            icon: Icon(Icons.bar_chart, color: colors.textSecondary),
             tooltip: "Insights",
             onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const InsightsScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const InsightsScreen()),
               );
               // Refreshing data when returning just in case
               loadTransactions();
@@ -116,13 +67,7 @@ class _TransactionListScreenState
 
           // Existing Chat Button
           IconButton(
-
-            icon:
-            const Icon(
-              Icons.chat,
-              color:
-              AppColors.textSecondary,
-            ),
+            icon: Icon(Icons.chat, color: colors.textSecondary),
             onPressed: () {
               Navigator.push(
                 context,
@@ -133,13 +78,7 @@ class _TransactionListScreenState
 
           // Existing Calendar Button
           IconButton(
-
-            icon:
-            const Icon(
-              Icons.calendar_month,
-              color:
-              AppColors.textSecondary,
-            ),
+            icon: Icon(Icons.calendar_month, color: colors.textSecondary),
             onPressed: () {
               Navigator.push(
                 context,
@@ -147,108 +86,51 @@ class _TransactionListScreenState
               );
             },
           ),
-
         ],
-
       ),
 
-
       body: ListView.builder(
-
-        padding: const EdgeInsets.only(
-          top: 8,
-          bottom: 80,
-        ),
-
+        padding: const EdgeInsets.only(top: 8, bottom: 80),
         itemCount: transactions.length,
 
-
         itemBuilder: (context, index) {
-
-          final transaction =
-          transactions[index];
-
+          final transaction = transactions[index];
 
           return TransactionCard(
-
             transaction: transaction,
-
-
             onTap: () async {
-
               await Navigator.push(
-
                 context,
-
                 MaterialPageRoute(
-
                   builder: (context) =>
-                      AddTransactionScreen(
-                        transaction: transaction,
-                      ),
-
+                      AddTransactionScreen(transaction: transaction),
                 ),
-
               );
-
-
               loadTransactions();
-
             },
-
-
 
             onDelete: () async {
-
-              await transactionService.deleteTransaction(
-                transaction.id!,
-              );
-
-
+              await transactionService.deleteTransaction(transaction.id!);
               loadTransactions();
-
             },
-
           );
-
         },
-
       ),
 
       floatingActionButton: FloatingActionButton(
-
-        backgroundColor:
-        AppColors.purple,
-
-
-        child:
-        const Icon(
-
-          Icons.add,
-
-          color:
-          AppColors.background,
-
-        ),
+        backgroundColor: colors.purple,
+        child: Icon(Icons.add, color: colors.background),
 
         onPressed: () async {
-
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-              const AddTransactionScreen(),
+              builder: (context) => const AddTransactionScreen(),
             ),
           );
-
-
           loadTransactions();
-
         },
-
       ),
-
     );
-
   }
 }
