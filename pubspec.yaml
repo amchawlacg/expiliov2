@@ -48,6 +48,8 @@ dependencies:
   sqflite_common_ffi_web: ^1.1.2
   connectivity_plus: ^6.0.0 # Use latest version compatible with your Flutter SDK
   cross_file: ^0.3.5+4
+  fl_chart: ^1.2.0
+  google_generative_ai: ^0.4.7
 
 dev_dependencies:
   flutter_test:
@@ -71,7 +73,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
-    - lib/assets/icons/
+    - assets/icons/
+    - assets/icons/categories/
+    - assets/icons/subcategories/
+    - assets/icons/components/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

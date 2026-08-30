@@ -37,6 +37,11 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
   final Color expenseBackground;
   final Color transferBackground;
 
+  // Chat Bubbles
+  final Color chatBubbleUser;
+  final Color chatBubbleUserText;
+  final Color chatBubbleBotText;
+
   // Shadows
   final Color shadow;
 
@@ -62,6 +67,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     required this.incomeBackground,
     required this.expenseBackground,
     required this.transferBackground,
+    required this.chatBubbleUser,
+    required this.chatBubbleUserText,
+    required this.chatBubbleBotText,
     required this.shadow,
   });
 
@@ -90,6 +98,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     incomeBackground: Color(0xff173827),
     expenseBackground: Color(0xff401F22),
     transferBackground: Color(0xff1C3448),
+    chatBubbleUser: Color(0xff2A3D14), // Subtle dark green container matching brand
+    chatBubbleUserText: Color(0xffD6F8A8),
+    chatBubbleBotText: Colors.white,
     shadow: Color(0x33000000),
   );
 
@@ -97,7 +108,7 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
   // ☀️ LIGHT THEME PALETTE
   // ===========================================================================
   static const light = AppColorScheme(
-    background: Color.fromARGB(255, 255, 146, 146),
+    background: Color.fromARGB(255, 0, 124, 248),
     card: Color(0xffFFFFFF),
     cardLight: Color(0xffF1F3F5),
     primary: Color(0xff5C940D),
@@ -118,6 +129,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     incomeBackground: Color(0xffD3F9D8),
     expenseBackground: Color(0xffFFE3E3),
     transferBackground: Color(0xffD0EBFF),
+    chatBubbleUser: Color.fromARGB(255, 30, 49, 255), // Soft light-tint container
+    chatBubbleUserText: Color.fromARGB(255, 251, 252, 251),
+    chatBubbleBotText: Color(0xff212529),
     shadow: Color(0x1A000000),
   );
 
@@ -144,6 +158,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     Color? incomeBackground,
     Color? expenseBackground,
     Color? transferBackground,
+    Color? chatBubbleUser,
+    Color? chatBubbleUserText,
+    Color? chatBubbleBotText,
     Color? shadow,
   }) {
     return AppColorScheme(
@@ -168,6 +185,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       incomeBackground: incomeBackground ?? this.incomeBackground,
       expenseBackground: expenseBackground ?? this.expenseBackground,
       transferBackground: transferBackground ?? this.transferBackground,
+      chatBubbleUser: chatBubbleUser ?? this.chatBubbleUser,
+      chatBubbleUserText: chatBubbleUserText ?? this.chatBubbleUserText,
+      chatBubbleBotText: chatBubbleBotText ?? this.chatBubbleBotText,
       shadow: shadow ?? this.shadow,
     );
   }
@@ -197,14 +217,14 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       incomeBackground: Color.lerp(incomeBackground, other.incomeBackground, t)!,
       expenseBackground: Color.lerp(expenseBackground, other.expenseBackground, t)!,
       transferBackground: Color.lerp(transferBackground, other.transferBackground, t)!,
+      chatBubbleUser: Color.lerp(chatBubbleUser, other.chatBubbleUser, t)!,
+      chatBubbleUserText: Color.lerp(chatBubbleUserText, other.chatBubbleUserText, t)!,
+      chatBubbleBotText: Color.lerp(chatBubbleBotText, other.chatBubbleBotText, t)!,
       shadow: Color.lerp(shadow, other.shadow, t)!,
     );
   }
 }
 
-// =============================================================================
-// 🎨 SHARED / STATIC CONSTANTS (Theme-Independent)
-// =============================================================================
 class AppColors {
   // Category Colors
   static const food = Color(0xffF2994A);
@@ -218,6 +238,8 @@ class AppColors {
   static const groceries = Color(0xff26A69A);
   static const education = Color(0xff5C6BC0);
   static const bills = Color(0xffFF7043);
+  static const loan = Color(0xffFF8F00);        // 👈 Added for Loan (Amber/Orange)
+  static const other = Color(0xff78909C);       // 👈 Added for Other (Slate Grey)
   static const investments = Color(0xff26C6DA);
   static const gifts = Color(0xffEC407A);
   static const transport = Color(0xff42A5F5);
@@ -230,9 +252,6 @@ class AppColors {
   static const deleted = Color(0xffEF5350);
 }
 
-// =============================================================================
-// 💡 CONTEXT EXTENSION HELPER
-// =============================================================================
 extension AppThemeContext on BuildContext {
   AppColorScheme get colors =>
       Theme.of(this).extension<AppColorScheme>() ?? AppColorScheme.dark;

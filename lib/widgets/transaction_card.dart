@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // 👈 Added flutter_svg
 import '../models/transaction.dart';
 import '../constants/app_colors.dart';
 
@@ -21,141 +22,205 @@ class TransactionCard extends StatefulWidget {
 class _TransactionCardState extends State<TransactionCard> {
   bool isHovering = false;
 
+  Color _getAmountColor(BuildContext context, String type) {
+    final colors = context.colors;
+    switch (type.toLowerCase()) {
+      case 'income':
+        return colors.income;
+      case 'expense':
+        return colors.expense;
+      case 'transfer':
+      default:
+        return colors.textPrimary;
+    }
+  }
+
+  String _getAmountText(TransactionModel transaction) {
+    final type = transaction.transactionType.toLowerCase();
+    if (type == 'income') {
+      return "+₹${transaction.amount}";
+    } else if (type == 'expense') {
+      return "-₹${transaction.amount}";
+    } else {
+      return "⇄ ₹${transaction.amount}";
+    }
+  }
+
+  String _getTitle(TransactionModel transaction) {
+    if (transaction.merchant?.trim().isNotEmpty == true) {
+      return transaction.merchant!.trim();
+    }
+    if (transaction.subCategory?.trim().isNotEmpty == true) {
+      return transaction.subCategory!.trim();
+    }
+    return transaction.category ?? "Unknown";
+  }
+
+  String _getCategoryIconPath(String? category, String? subCategory) {
+    const String baseCat = 'assets/icons/categories';
+    const String baseSub = 'assets/icons/subcategories';
+
+    // Normalize name to snake_case format (e.g. "Public Transport" -> "public_transport")
+    final sub = subCategory?.trim().toLowerCase().replaceAll(' ', '_');
+    final cat = category?.trim().toLowerCase().replaceAll(' ', '_');
+
+    // 1. Check Subcategory (exclude generic "other")
+    if (sub != null && sub.isNotEmpty && sub != 'other') {
+      return '$baseSub/$sub.svg';
+    }
+
+    // 2. Fall back to Parent Category
+    if (cat != null && cat.isNotEmpty && cat != 'other') {
+      return '$baseCat/$cat.svg';
+    }
+
+    // 3. Ultimate Fallback
+    return '$baseCat/other.svg';
+  }
+
   @override
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
-    final isExpense = transaction.transactionType.toLowerCase() == "expense";
     final colors = context.colors;
 
-    // 1. Setup colors & indicators based on income/expense dynamic
-    final accentColor = isExpense ? colors.expense : colors.income;
+    final bool isTitleSubCategory =
+        (transaction.merchant?.trim().isEmpty ?? true) &&
+        (transaction.subCategory?.trim().isNotEmpty ?? false);
+
+    final bool showSubCategoryInMeta =
+        !isTitleSubCategory &&
+        (transaction.subCategory?.trim().isNotEmpty ?? false);
+
+    final categoryColor = _getCategoryColor(transaction.category ?? "");
 
     return InkWell(
-  onTap: widget.onTap,
-  hoverColor: Colors.transparent,
-  splashColor: Colors.transparent,
-  highlightColor: Colors.transparent,
-  child: Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-    decoration: BoxDecoration(
-      color: colors.card,
-    ),
-    child: Row(
-      children: [
-        // Left-edge Type Indicator Bar
-        const SizedBox(width: 12),
-
-        // Circular Icon Avatar
-        CircleAvatar(
-          radius: 22,
-          backgroundColor: _getCategoryColor(
-            transaction.category ?? "",
-          ).withOpacity(0.15),
-          child: Icon(
-            _categoryIcon(transaction.category ?? ""),
-            color: _getCategoryColor(transaction.category ?? ""),
-            size: 20,
-          ),
+      onTap: widget.onTap,
+      onHover: (hovering) {
+        setState(() {
+          isHovering = hovering;
+        });
+      },
+      hoverColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+        decoration: BoxDecoration(
+          color: isHovering ? colors.cardLight : colors.card,
         ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
 
-        const SizedBox(width: 14),
-
-        // Middle details cluster
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                transaction.category ?? "Unknown",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
+            // Circular SVG Avatar
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: categoryColor.withOpacity(0.15),
+              child: SvgPicture.asset(
+                _getCategoryIconPath(
+                  transaction.category,
+                  transaction.subCategory,
+                ),
+                width: 20,
+                height: 20,
+                fit: BoxFit.contain,
+                colorFilter: ColorFilter.mode(
+                  categoryColor,
+                  BlendMode.srcIn,
                 ),
               ),
-              if (transaction.merchant?.isNotEmpty == true) ...[
-                const SizedBox(height: 2),
-                Text(
-                  transaction.merchant!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.textSecondary.withOpacity(0.8),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 6),
-              // Horizontal meta row (Date | Method | Source)
-              Row(
+            ),
+
+            const SizedBox(width: 14),
+
+            // Middle details cluster
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 12,
-                    color: colors.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
                   Text(
-                    "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
+                    _getTitle(transaction),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: 11,
+                      color: colors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Text(
-                    "  |  ",
-                    style: TextStyle(
-                      color: colors.textSecondary.withOpacity(0.3),
-                      fontSize: 11,
-                    ),
+                  const SizedBox(height: 6),
+                  // Horizontal meta row (Date | Subcategory)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.calendar_today,
+                        size: 12,
+                        color: colors.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                      if (showSubCategoryInMeta) ...[
+                        Text(
+                          "  |  ",
+                          style: TextStyle(
+                            color: colors.textSecondary.withOpacity(0.3),
+                            fontSize: 11,
+                          ),
+                        ),
+                        Flexible(
+                          child: Text(
+                            transaction.subCategory!.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  Icon(
-                    _getPaymentIcon(transaction.paymentMethod),
-                    size: 12,
-                    color: colors.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            // Right Action / Amount Layout Block
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                   Text(
-                    transaction.paymentMethod ?? "Cash",
+                    _getAmountText(transaction),
                     style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: 11,
+                      color: _getAmountColor(
+                        context,
+                        transaction.transactionType,
+                      ),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-
-        const SizedBox(width: 8),
-
-        // Right Action / Amount Layout Block
-        Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                "${isExpense ? "-" : "+"}\$${transaction.amount}",
-                style: TextStyle(
-                  color: accentColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  ),
-);
+      ),
+    );
   }
 
   // Helper parsing methods
@@ -177,37 +242,6 @@ class _TransactionCardState extends State<TransactionCard> {
     return months[month - 1];
   }
 
-  IconData _getPaymentIcon(String? method) {
-    switch (method?.toLowerCase()) {
-      case 'credit card':
-      case 'debit card':
-        return Icons.credit_card;
-      case 'bank transfer':
-        return Icons.account_balance;
-      default:
-        return Icons.payments;
-    }
-  }
-
-  IconData _categoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case "grocery shopping":
-      case "shopping":
-        return Icons.shopping_cart;
-      case "fuel":
-      case "travel":
-        return Icons.local_gas_station;
-      case "salary":
-      case "business":
-        return Icons.work;
-      case "dinner with friends":
-      case "food":
-        return Icons.restaurant;
-      default:
-        return Icons.account_balance_wallet;
-    }
-  }
-
   Color _getCategoryColor(String category) {
     switch (category.toLowerCase()) {
       case "food":
@@ -216,7 +250,8 @@ class _TransactionCardState extends State<TransactionCard> {
       case "shopping":
         return AppColors.shopping;
       case "travel":
-        return AppColors.travel;
+      case "transport":
+        return AppColors.transport;
       case "entertainment":
         return AppColors.entertainment;
       case "business":
@@ -234,12 +269,14 @@ class _TransactionCardState extends State<TransactionCard> {
         return AppColors.education;
       case "bills":
         return AppColors.bills;
+      case "loan":
+        return AppColors.loan;
+      case "other":
+        return AppColors.other;
       case "investments":
         return AppColors.investments;
       case "gifts":
         return AppColors.gifts;
-      case "transport":
-        return AppColors.transport;
       case "rent":
         return AppColors.rent;
       default:

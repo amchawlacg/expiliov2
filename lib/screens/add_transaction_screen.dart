@@ -28,6 +28,8 @@ import '../screens/attachment_gallery_screen.dart';
 import '../models/category_model.dart';
 import '../services/category_service.dart';
 
+import 'package:flutter_svg/flutter_svg.dart';
+
 class AddTransactionScreen extends StatefulWidget {
   final TransactionModel? transaction;
   final TransactionModel? draftTransaction;
@@ -51,8 +53,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String selectedCategory = "";
   String selectedSubcategory = "";
   String transactionType = "expense";
-  String profileType = "personal";
-  String paymentMethod = "cash";
+  String profileType = "Personal";
+  String paymentMethod = "Cash";
 
   DateTime selectedDate = DateTime.now();
   File? selectedInvoice;
@@ -62,6 +64,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   final transactionService = TransactionService();
   final attachmentService = AttachmentService();
   final categoryService = CategoryService();
+
+  String?
+  _hoveredTypeButton; // 👈 Tracks which type button is currently hovered
+  bool _isSaveHovered = false; // 👈 Tracks hover for Save button
+
+  bool _isBackHovered = false;
+  bool _isDeleteHovered = false;
 
   @override
   void initState() {
@@ -76,7 +85,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       noteController.text = transaction.note ?? "";
       merchantController.text = transaction.merchant ?? "";
       paymentNameController.text = transaction.paymentName ?? "";
-      paymentMethod = transaction.paymentMethod ?? "cash";
+      paymentMethod = transaction.paymentMethod ?? "Cash";
       transactionType = transaction.transactionType;
       profileType = transaction.profileType;
       selectedDate = transaction.date;
@@ -84,6 +93,24 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       loadAttachments();
     }
     loadCategories();
+  }
+
+  String _getCategoryIconPath(String category) {
+    const String baseCat = 'assets/icons/categories';
+    final cat = category.trim().toLowerCase().replaceAll(' ', '_');
+    if (cat.isNotEmpty && cat != 'other') {
+      return '$baseCat/$cat.svg';
+    }
+    return '$baseCat/other.svg';
+  }
+
+  String _getSubcategoryIconPath(String subcategory) {
+    const String baseSub = 'assets/icons/subcategories';
+    final sub = subcategory.trim().toLowerCase().replaceAll(' ', '_');
+    if (sub.isNotEmpty && sub != 'other') {
+      return '$baseSub/$sub.svg';
+    }
+    return 'assets/icons/categories/other.svg';
   }
 
   Future<void> loadCategories() async {
@@ -125,173 +152,229 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> selectDate() async {
-  final colors = context.colors;
+    final colors = context.colors;
 
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-  final years = List.generate(101, (i) => 2000 + i);
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    final years = List.generate(101, (i) => 2000 + i);
 
-  int tempMonth = selectedDate.month;
-  int tempDay = selectedDate.day;
-  int tempYear = selectedDate.year;
+    int tempYear = selectedDate.year;
+    int tempMonth = selectedDate.month;
+    int tempDay = selectedDate.day;
 
-  // Clean base offsets that are exact multiples of their respective modulo counts
-  const int monthBase = 12000; // divisible by 12
-  const int dayBase = 12400;   // divisible by 31
-  const int yearBase = 12120;  // divisible by 101
+    const int yearBase = 12120; // 101 * 120 (Exact multiple of 101)
+    const int monthBase = 12000; // 12 * 1000 (Exact multiple of 12)
 
-  final monthController = FixedExtentScrollController(
-    initialItem: monthBase + (tempMonth - 1),
-  );
-  final dayController = FixedExtentScrollController(
-    initialItem: dayBase + (tempDay - 1),
-  );
-  final yearController = FixedExtentScrollController(
-    initialItem: yearBase + years.indexOf(tempYear),
-  );
+    int currentDaysCount = DateUtils.getDaysInMonth(tempYear, tempMonth);
+    int dayBase =
+        (12000 ~/ currentDaysCount) *
+        currentDaysCount; // Exact multiple of currentDaysCount
 
-  await showModalBottomSheet(
-    context: context,
-    backgroundColor: colors.card,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
-    builder: (ctx) {
-      return StatefulBuilder(
-        builder: (context, setModalState) {
-          void updateSelectedDate() {
-            final maxDays = DateUtils.getDaysInMonth(tempYear, tempMonth);
-            final clampedDay = tempDay.clamp(1, maxDays);
-            setState(() {
-              selectedDate = DateTime(tempYear, tempMonth, clampedDay);
-            });
-          }
+    final yearController = FixedExtentScrollController(
+      initialItem: yearBase + years.indexOf(tempYear),
+    );
+    final monthController = FixedExtentScrollController(
+      initialItem: monthBase + (tempMonth - 1),
+    );
+    FixedExtentScrollController dayController = FixedExtentScrollController(
+      initialItem: dayBase + (tempDay - 1),
+    );
 
-          Widget buildWheel({
-            required FixedExtentScrollController controller,
-            required int moduloCount,
-            required int currentSelectedValue,
-            required String Function(int) labelBuilder,
-            required ValueChanged<int> onSelectedItemChanged,
-          }) {
-            return ListWheelScrollView.useDelegate(
-              controller: controller,
-              itemExtent: 42,
-              perspective: 0.0001,
-              diameterRatio: 30,
-              physics: const FixedExtentScrollPhysics(),
-              onSelectedItemChanged: onSelectedItemChanged,
-              childDelegate: ListWheelChildBuilderDelegate(
-                childCount: null,
-                builder: (context, index) {
-                  final itemVal = ((index % moduloCount) + moduloCount) % moduloCount;
-                  final isSelected = itemVal == currentSelectedValue;
-
-                  return Center(
-                    child: Text(
-                      labelBuilder(index),
-                      style: TextStyle(
-                        fontSize: isSelected ? 18 : 14,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                        color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
-                      ),
-                    ),
-                  );
-                },
-              ),
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.card,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final daysInCurrentMonth = DateUtils.getDaysInMonth(
+              tempYear,
+              tempMonth,
             );
-          }
 
-          return SizedBox(
-            height: 380,
-            width: double.infinity,
-            child: Column(
-              children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.textSecondary.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        height: 42,
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: colors.iconCircle.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(10),
+            // Re-sync controller when month length changes (e.g. leap year or 30/31 days)
+            if (daysInCurrentMonth != currentDaysCount) {
+              currentDaysCount = daysInCurrentMonth;
+              if (tempDay > daysInCurrentMonth) {
+                tempDay = daysInCurrentMonth;
+              }
+              dayBase = (12000 ~/ currentDaysCount) * currentDaysCount;
+              dayController.dispose();
+              dayController = FixedExtentScrollController(
+                initialItem: dayBase + (tempDay - 1),
+              );
+            }
+
+            void updateDate() {
+              if (tempDay > daysInCurrentMonth) {
+                tempDay = daysInCurrentMonth;
+              }
+              setState(() {
+                selectedDate = DateTime(tempYear, tempMonth, tempDay);
+              });
+            }
+
+            Widget buildInfiniteWheel({
+              required Key key,
+              required FixedExtentScrollController controller,
+              required int moduloCount,
+              required int currentSelectedValue,
+              required String Function(int) labelBuilder,
+              required ValueChanged<int> onSelectedItemChanged,
+            }) {
+              return ListWheelScrollView.useDelegate(
+                key: key,
+                controller: controller,
+                itemExtent: 42,
+                perspective: 0.0001,
+                diameterRatio: 30,
+                physics: const FixedExtentScrollPhysics(),
+                onSelectedItemChanged: onSelectedItemChanged,
+                childDelegate: ListWheelChildBuilderDelegate(
+                  childCount: null,
+                  builder: (context, index) {
+                    final itemVal =
+                        ((index % moduloCount) + moduloCount) % moduloCount;
+                    final isSelected = itemVal == currentSelectedValue;
+
+                    return Center(
+                      child: Text(
+                        labelBuilder(itemVal),
+                        style: TextStyle(
+                          fontSize: isSelected ? 18 : 14,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                          color: colors.textPrimary.withOpacity(
+                            isSelected ? 1.0 : 0.35,
+                          ),
                         ),
                       ),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: buildWheel(
-                              controller: monthController,
-                              moduloCount: 12,
-                              currentSelectedValue: tempMonth - 1,
-                              labelBuilder: (i) => months[((i % 12) + 12) % 12],
-                              onSelectedItemChanged: (index) {
-                                setModalState(() {
-                                  tempMonth = (((index % 12) + 12) % 12) + 1;
-                                });
-                                updateSelectedDate();
-                              },
-                            ),
-                          ),
-                          Expanded(
-                            flex: 2,
-                            child: buildWheel(
-                              controller: dayController,
-                              moduloCount: 31,
-                              currentSelectedValue: tempDay - 1,
-                              labelBuilder: (i) => "${(((i % 31) + 31) % 31) + 1}",
-                              onSelectedItemChanged: (index) {
-                                setModalState(() {
-                                  tempDay = (((index % 31) + 31) % 31) + 1;
-                                });
-                                updateSelectedDate();
-                              },
-                            ),
-                          ),
-                          Expanded(
-                            flex: 2,
-                            child: buildWheel(
-                              controller: yearController,
-                              moduloCount: years.length,
-                              currentSelectedValue: years.indexOf(tempYear),
-                              labelBuilder: (i) => "${years[((i % years.length) + years.length) % years.length]}",
-                              onSelectedItemChanged: (index) {
-                                setModalState(() {
-                                  tempYear = years[((index % years.length) + years.length) % years.length];
-                                });
-                                updateSelectedDate();
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              ],
-            ),
-          );
-        },
-      );
-    },
-  );
-}
+              );
+            }
+
+            return SizedBox(
+              height: 380,
+              width: double.infinity,
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.textSecondary.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          height: 42,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: colors.iconCircle.withOpacity(0.4),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            // 1. Year (Cyclic)
+                            Expanded(
+                              flex: 2,
+                              child: buildInfiniteWheel(
+                                key: const ValueKey('year_wheel'),
+                                controller: yearController,
+                                moduloCount: years.length,
+                                currentSelectedValue: years.indexOf(tempYear),
+                                labelBuilder: (val) => "${years[val]}",
+                                onSelectedItemChanged: (index) {
+                                  setModalState(() {
+                                    final val =
+                                        ((index % years.length) +
+                                            years.length) %
+                                        years.length;
+                                    tempYear = years[val];
+                                  });
+                                  updateDate();
+                                },
+                              ),
+                            ),
+                            // 2. Month (Cyclic: Dec -> Jan -> Feb...)
+                            Expanded(
+                              flex: 3,
+                              child: buildInfiniteWheel(
+                                key: const ValueKey('month_wheel'),
+                                controller: monthController,
+                                moduloCount: 12,
+                                currentSelectedValue: tempMonth - 1,
+                                labelBuilder: (val) => months[val],
+                                onSelectedItemChanged: (index) {
+                                  setModalState(() {
+                                    final val = ((index % 12) + 12) % 12;
+                                    tempMonth = val + 1;
+                                  });
+                                  updateDate();
+                                },
+                              ),
+                            ),
+                            // 3. Day (Cyclic with dynamic modulo alignment)
+                            Expanded(
+                              flex: 2,
+                              child: buildInfiniteWheel(
+                                key: ValueKey(
+                                  'day_wheel_${daysInCurrentMonth}',
+                                ),
+                                controller: dayController,
+                                moduloCount: daysInCurrentMonth,
+                                currentSelectedValue: tempDay - 1,
+                                labelBuilder: (val) => "${val + 1}",
+                                onSelectedItemChanged: (index) {
+                                  setModalState(() {
+                                    final val =
+                                        ((index % daysInCurrentMonth) +
+                                            daysInCurrentMonth) %
+                                        daysInCurrentMonth;
+                                    tempDay = val + 1;
+                                  });
+                                  updateDate();
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Future<void> pickInvoice() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
@@ -554,274 +637,408 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       },
       child: Scaffold(
         backgroundColor: colors.background,
-        appBar: AppBar(
-          backgroundColor: colors.background,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: colors.textPrimary),
-            onPressed: () async {
-              final shouldPop = await _onWillPop();
-              if (shouldPop && context.mounted) {
-                Navigator.pop(context);
-              }
-            },
-          ),
-          title: Text(
-            widget.transaction == null ? "Add Transaction" : "Edit Transaction",
-            style: TextStyle(color: colors.textPrimary),
-          ),
-          actions: [
-            if (widget.transaction != null)
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: colors.expense),
-                tooltip: 'Delete',
-                onPressed: _confirmDelete,
-              ),
-          ],
-        ),
-        body: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: EdgeInsets
-              .zero, // or EdgeInsets.symmetric(vertical: 20) if you only want vertical space
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-                ],
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 46,
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: InputDecoration(
-                  prefixText: "₹ ",
-                  prefixStyle: TextStyle(color: colors.textPrimary),
-                  hintText: "0",
-                  border: InputBorder.none,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Center(
-                child: SizedBox(
-                  width: 380, // 👈 Set your exact fixed width here
+        body: SafeArea(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top Custom Action Row
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      typeButton("expense"),
-                      typeButton("income"),
-                      typeButton("transfer"),
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => setState(() => _isBackHovered = true),
+                        onExit: (_) => setState(() => _isBackHovered = false),
+                        child: IconButton(
+                          hoverColor: Colors.transparent,
+                          splashColor: Colors.transparent,
+                          highlightColor: Colors.transparent,
+                          icon: SvgPicture.asset(
+                            'assets/icons/components/trash.svg',
+                            width: 20,
+                            height: 20,
+                            colorFilter: ColorFilter.mode(
+                              _isBackHovered
+                                  ? Color.alphaBlend(
+                                      Colors.black.withValues(alpha: 0.35),
+                                      colors.textPrimary,
+                                    )
+                                  : colors.textPrimary,
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                          onPressed: () async {
+                            final shouldPop = await _onWillPop();
+                            if (shouldPop && context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                        ),
+                      ),
+                      if (widget.transaction != null)
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          onEnter: (_) => setState(() => _isDeleteHovered = true),
+                          onExit: (_) => setState(() => _isDeleteHovered = false),
+                          child: IconButton(
+                            hoverColor: Colors.transparent,
+                            splashColor: Colors.transparent,
+                            highlightColor: Colors.transparent,
+                            icon: SvgPicture.asset(
+                              'assets/icons/components/trash.svg',
+                              width: 20,
+                              height: 20,
+                              colorFilter: ColorFilter.mode(
+                                _isDeleteHovered
+                                    ? Color.alphaBlend(
+                                        Colors.black.withValues(alpha: 0.35),
+                                        colors.textPrimary,
+                                      )
+                                    : colors.textPrimary,
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                          onPressed: _confirmDelete,
+                        ),
+                      )
+                      else
+                        const SizedBox(width: 48),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 25),
-              TransactionOptionTile(
-                icon: Icons.category,
-                title: "Category",
-                value: selectedCategory,
-                onTap: () {
-                  if (categories.isEmpty) return;
-                  showPicker(categories.map((c) => c.name).toList(), (value) {
-                    final matched = categories.firstWhere(
-                      (c) => c.name == value,
-                      orElse: () => categories.first,
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 46,
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    prefixText: "₹ ",
+                    prefixStyle: TextStyle(color: colors.textPrimary),
+                    hintText: "0",
+                    border: InputBorder.none,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: SizedBox(
+                    width: 380, // 👈 Set your exact fixed width here
+                    child: Row(
+                      children: [
+                        typeButton("expense"),
+                        typeButton("income"),
+                        typeButton("transfer"),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 25),TransactionOptionTile(
+                  svgAssetPath: _getCategoryIconPath(selectedCategory),
+                  title: "Category",
+                  value: selectedCategory,
+                  onTap: () {
+                    if (categories.isEmpty) return;
+                    showPicker(
+                      categories.map((c) => c.name).toList(),
+                      (value) {
+                        final matched = categories.firstWhere(
+                          (c) => c.name == value,
+                          orElse: () => categories.first,
+                        );
+                        setState(() {
+                          selectedCategory = value;
+                          selectedSubcategory = matched.subcategories.isNotEmpty
+                              ? matched.subcategories.first
+                              : "Other";
+                        });
+                      },
+                      currentSelected: selectedCategory,
+                      title: "Category",
                     );
-                    setState(() {
-                      selectedCategory = value;
-                      selectedSubcategory = matched.subcategories.isNotEmpty
-                          ? matched.subcategories.first
-                          : "Other";
-                    });
-                  });
-                },
-              ),
-              TransactionOptionTile(
-                icon: Icons.list,
-                title: "Subcategory",
-                value: selectedSubcategory,
-                onTap: () {
-                  final currentCategory = categories.firstWhere(
-                    (c) => c.name == selectedCategory,
-                    orElse: () => categories.isNotEmpty
-                        ? categories.first
-                        : CategoryModel(name: '', subcategories: ['Other']),
-                  );
+                  },
+                ),
+                TransactionOptionTile(
+                  svgAssetPath: _getSubcategoryIconPath(selectedSubcategory),
+                  title: "Subcategory",
+                  value: selectedSubcategory,
+                  onTap: () {
+                    final currentCategory = categories.firstWhere(
+                      (c) => c.name == selectedCategory,
+                      orElse: () => categories.isNotEmpty
+                          ? categories.first
+                          : CategoryModel(name: '', subcategories: ['Other']),
+                    );
 
-                  showPicker(currentCategory.subcategories, (value) {
-                    setState(() {
-                      selectedSubcategory = value;
-                    });
-                  });
-                },
-              ),
-              TransactionOptionTile(
-                icon: Icons.payment,
-                title: "Payment",
-                value: paymentMethod,
-                onTap: () {
-                  showPicker(
-                    ["cash", "credit_card", "debit_card", "upi", "bank"],
-                    (value) {
-                      setState(() {
-                        paymentMethod = value;
-                      });
-                    },
-                  );
-                },
-              ),
-              TransactionOptionTile(
-                icon: Icons.person,
-                title: "Profile",
-                value: profileType,
-                onTap: () {
-                  showPicker(["personal", "business"], (value) {
-                    setState(() {
-                      profileType = value;
-                    });
-                  });
-                },
-              ),
-              TransactionOptionTile(
-                icon: Icons.calendar_month,
-                title: "Date",
-                value:
-                    "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
-                onTap: selectDate,
-              ),
-              TransactionOptionTile(
-                icon: Icons.attach_file,
-                title: "Invoice",
-                trailingWidget: attachments.isNotEmpty
-                    ? Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          AttachmentThumbnailView(
-                            attachment: attachments.first,
-                            size: 34,
-                            borderRadius: 6,
-                          ),
-                          if (attachments.length > 1)
-                            Positioned(
-                              right: -4,
-                              bottom: -4,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colors.purple,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  "+${attachments.length - 1}",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                    showPicker(
+                      currentCategory.subcategories,
+                      (value) {
+                        setState(() {
+                          selectedSubcategory = value;
+                        });
+                      },
+                      currentSelected: selectedSubcategory,
+                      title: "Subcategory",
+                    );
+                  },
+                ),
+                TransactionOptionTile(
+                  svgAssetPath: 'assets/icons/components/payment.svg',
+                  title: "Payment",
+                  value: paymentMethod,
+                  onTap: () {
+                    showPicker(
+                      ["Cash", "Credit Card", "Debit Card", "UPI", "Bank"],
+                      (value) {
+                        setState(() {
+                          paymentMethod = value;
+                        });
+                      },
+                      currentSelected: paymentMethod,
+                      title: "Payment",
+                    );
+                  },
+                ),
+                TransactionOptionTile(
+                  svgAssetPath: 'assets/icons/components/profile.svg',
+                  title: "Profile",
+                  value: profileType,
+                  onTap: () {
+                    showPicker(
+                      ["Personal", "Business"],
+                      (value) {
+                        setState(() {
+                          profileType = value;
+                        });
+                      },
+                      currentSelected: profileType,
+                      title: "Profile",
+                    );
+                  },
+                ),
+                TransactionOptionTile(
+                  svgAssetPath: 'assets/icons/components/calendar.svg',
+                  title: "Date",
+                  value:
+                      "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
+                  onTap: selectDate,
+                ),
+                TransactionOptionTile(
+                  svgAssetPath: 'assets/icons/components/invoice.svg',
+                  title: "Invoice",
+                  trailingWidget: attachments.isNotEmpty
+                      ? Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            AttachmentThumbnailView(
+                              attachment: attachments.first,
+                              size: 34,
+                              borderRadius: 6,
+                            ),
+                            if (attachments.length > 1)
+                              Positioned(
+                                right: -4,
+                                bottom: -4,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colors.purple,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    "+${attachments.length - 1}",
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      )
-                    : Text(
-                        "Add",
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                onTap: () {
-                  if (attachments.isEmpty) {
-                    pickInvoice();
-                  } else {
-                    _openGallery();
-                  }
-                },
-              ),
-              customInput(
-                controller: merchantController,
-                hint: "Merchant",
-                icon: Icons.store,
-              ),
-              customInput(
-                controller: paymentNameController,
-                hint: "Payment name",
-                icon: Icons.account_balance_wallet,
-              ),
-              customInput(
-                controller: noteController,
-                hint: "Note",
-                icon: Icons.notes,
-              ),
-              const SizedBox(height: 25),
-              Center(
-                child: SizedBox(
-                  width: 100, // 👈 Matches the top buttons exact width
-                  child: GestureDetector(
-                    onTap: saveTransaction,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      decoration: BoxDecoration(
-                        color: colors.purple,
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          "SAVE",
+                          ],
+                        )
+                      : Text(
+                          "Add",
                           style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                            color: colors.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                  onTap: () {
+                    if (attachments.isEmpty) {
+                      pickInvoice();
+                    } else {
+                      _openGallery();
+                    }
+                  },
+                ),
+                customInput(
+                  controller: merchantController,
+                  hint: "Merchant",
+                  svgAssetPath: 'assets/icons/components/store.svg',
+                ),
+                customInput(
+                  controller: paymentNameController,
+                  hint: "Payment name",
+                  svgAssetPath: 'assets/icons/components/wallet.svg',
+                ),
+                customInput(
+                  controller: noteController,
+                  hint: "Note",
+                  svgAssetPath: 'assets/icons/components/note.svg',
+                ),
+                const SizedBox(height: 25),
+                Center(
+                  child: SizedBox(
+                    width: 100,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      onEnter: (_) => setState(() => _isSaveHovered = true),
+                      onExit: (_) => setState(() => _isSaveHovered = false),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeInOut,
+                        decoration: BoxDecoration(
+                          color: _isSaveHovered
+                              ? Color.alphaBlend(
+                                  Colors.black.withValues(alpha: 0.25),
+                                  colors.purple,
+                                )
+                              : colors.purple,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            elevation: 0,
+                            shadowColor: Colors.transparent,
+                            backgroundColor: Colors.transparent,
+                            surfaceTintColor: Colors.transparent,
+                            minimumSize: const Size(
+                              0,
+                              kMinInteractiveDimension,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: saveTransaction,
+                          child: const Text(
+                            "Save",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 30), // 👈 Add this below the Save button
-            ],
+                const SizedBox(height: 30),
+              ],
+            ),
           ),
         ),
-      ), // 👈 Closes Scaffold
-    ); // 👈 Closes PopScope
+      ),
+    );
   }
 
   Widget typeButton(String type) {
     final selected = transactionType == type;
     final colors = context.colors;
+    final isHovered = _hoveredTypeButton == type;
 
     return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            transactionType = type;
-          });
-        },
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          decoration: BoxDecoration(
-            color: selected ? colors.purple : colors.card,
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Center(
-            child: Text(
-              type.toUpperCase(),
-              style: TextStyle(
-                color: selected ? Colors.white : colors.textSecondary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hoveredTypeButton = type),
+          onExit: (_) => setState(() => _hoveredTypeButton = null),
+          child: selected
+              ? AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  decoration: BoxDecoration(
+                    color: isHovered
+                        ? Color.alphaBlend(
+                            Colors.black.withValues(alpha: 0.25),
+                            colors.purple,
+                          )
+                        : colors.purple,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      backgroundColor: Colors.transparent,
+                      surfaceTintColor: Colors.transparent,
+                      minimumSize: const Size(0, kMinInteractiveDimension),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        transactionType = type;
+                      });
+                    },
+                    child: Text(
+                      "${type[0].toUpperCase()}${type.substring(1)}",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                )
+              : OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, kMinInteractiveDimension),
+                    side: BorderSide(
+                      color: colors.textSecondary.withOpacity(0.3),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      transactionType = type;
+                    });
+                  },
+                  child: Text(
+                    "${type[0].toUpperCase()}${type.substring(1)}",
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
         ),
       ),
     );
@@ -830,7 +1047,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Widget customInput({
     required TextEditingController controller,
     required String hint,
-    required IconData icon,
+    required String svgAssetPath,
   }) {
     final colors = context.colors;
     return Container(
@@ -846,12 +1063,23 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         ),
         decoration: InputDecoration(
           icon: Container(
+            height: 36,
+            width: 36,
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: colors.iconCircle,
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: colors.textPrimary, size: 20),
+            child: SvgPicture.asset(
+              svgAssetPath,
+              width: 20,
+              height: 20,
+              fit: BoxFit.contain,
+              colorFilter: ColorFilter.mode(
+                colors.textPrimary,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           hintText: hint,
           hintStyle: TextStyle(
@@ -865,7 +1093,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  void showPicker(List<String> items, Function(String) selected) {
+  void showPicker(
+    List<String> items,
+    Function(String) selected, {
+    String? currentSelected,
+    String? title,
+  }) {
     final colors = context.colors;
 
     showModalBottomSheet(
@@ -876,56 +1109,94 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return SizedBox(
-          height: 380, // 👈 Fixed height
-          width: double.infinity, // 👈 Explicit full screen width
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              // Top Drag Handle
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.textSecondary.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: items.length,
-                  separatorBuilder: (context, index) => Divider(
-                    color: colors.textSecondary.withOpacity(0.08),
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Drag Handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.textSecondary.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 2,
-                      ),
-                      title: Text(
-                        item.replaceAll("_", " "),
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      // 👈 trailing icon removed here
-                      onTap: () {
-                        selected(item);
-                        Navigator.pop(context);
-                      },
-                    );
-                  },
                 ),
-              ),
-            ],
+                if (title != null) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+
+                // Options List matching Sort/Filter sheet style
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.45,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: items.length,
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      final isSelected =
+                          currentSelected != null &&
+                          (currentSelected.toLowerCase() == item.toLowerCase());
+
+                      return InkWell(
+                        onTap: () {
+                          selected(item);
+                          Navigator.pop(context);
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 4,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                item.replaceAll("_", " "),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isSelected
+                                      ? colors.purple
+                                      : colors.textPrimary,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check,
+                                  color: colors.purple,
+                                  size: 18,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         );
       },
