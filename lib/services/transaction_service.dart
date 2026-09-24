@@ -8,10 +8,7 @@ class TransactionService {
     final now = DateTime.now();
 
     // Create new transaction instance setting current timestamps
-    final newTransaction = transaction.copyWith(
-      createdAt: now,
-      updatedAt: now,
-    );
+    final newTransaction = transaction.copyWith(createdAt: now, updatedAt: now);
 
     return await _database.insertTransaction(newTransaction);
   }
@@ -21,8 +18,10 @@ class TransactionService {
   }
 
   Future<int> updateTransaction(TransactionModel transaction) async {
-    // Only update the modification timestamp while leaving everything else intact
     final updatedTransaction = transaction.copyWith(
+      baseAmount:
+          transaction.amount *
+          (transaction.exchangeRate != 0.0 ? transaction.exchangeRate : 1.0),
       updatedAt: DateTime.now(),
     );
 

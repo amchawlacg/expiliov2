@@ -153,45 +153,64 @@ class SyncService {
       final String cloudUrl = presignedData['cloud_url'];
       final String cloudThumbnailUrl = presignedData['cloud_thumbnail_url'] ?? '';
 
-      // 2. Upload Full Image to Cloudflare R2
+      // Determine file MIME type dynamically
+      final bool isPdf = attachment.fileName.toLowerCase().endsWith('.pdf') ||
+          attachment.fileType == 'application/pdf';
+      final String fileContentType = isPdf ? 'application/pdf' : 'image/jpeg';
+
+      // 2. Upload Full File (PDF or Image) to Cloudflare R2
       if (attachment.localPath != null && attachment.localPath!.isNotEmpty) {
-        appLog('🟡 [SYNC] Uploading full image to R2 presigned URL...');
-        final XFile fullXFile = XFile(attachment.localPath!);
-        final Uint8List fullBytes = await fullXFile.readAsBytes();
+        appLog('🟡 [SYNC] Uploading full file to R2 presigned URL...');
+        final File localFile = File(attachment.localPath!);
+
+        if (!localFile.existsSync()) {
+          appLog('❌ [SYNC] Local file does not exist at path: ${attachment.localPath}');
+          return false;
+        }
+
+        final Uint8List fullBytes = await localFile.readAsBytes();
 
         final uploadRes = await http.put(
           Uri.parse(fullUploadUrl),
-          headers: {'Content-Type': 'image/jpeg'},
+          headers: {'Content-Type': fileContentType}, // 👈 Dynamic Content-Type
           body: fullBytes,
         );
 
-        appLog('🔵 [SYNC] Full Image R2 Upload Status: ${uploadRes.statusCode} (${fullBytes.lengthInBytes} bytes)');
+        appLog('🔵 [SYNC] Full File R2 Upload Status: ${uploadRes.statusCode} (${fullBytes.lengthInBytes} bytes)');
 
         if (uploadRes.statusCode != 200) {
-          appLog('❌ [SYNC] Full image R2 upload failed');
+          appLog('❌ [SYNC] Full file R2 upload failed');
           return false;
         }
       }
 
-      // 3. Upload Thumbnail to Cloudflare R2
+      // 3. Upload Thumbnail to Cloudflare R2 (only if thumb file actually exists)
       if (thumbUploadUrl != null &&
           thumbUploadUrl.isNotEmpty &&
           attachment.localThumbnailPath != null &&
           attachment.localThumbnailPath!.isNotEmpty) {
-        appLog('🟡 [SYNC] Uploading thumbnail to R2 presigned URL...');
-        final XFile thumbXFile = XFile(attachment.localThumbnailPath!);
-        final Uint8List thumbBytes = await thumbXFile.readAsBytes();
+        final File thumbFile = File(attachment.localThumbnailPath!);
 
-        final thumbUploadRes = await http.put(
-          Uri.parse(thumbUploadUrl),
-          headers: {'Content-Type': 'image/jpeg'},
-          body: thumbBytes,
-        );
+        if (thumbFile.existsSync()) {
+          appLog('🟡 [SYNC] Uploading thumbnail to R2 presigned URL...');
+          final Uint8List thumbBytes = await thumbFile.readAsBytes();
 
-        appLog('🔵 [SYNC] Thumbnail R2 Upload Status: ${thumbUploadRes.statusCode} (${thumbBytes.lengthInBytes} bytes)');
+          final thumbUploadRes = await http.put(
+            Uri.parse(thumbUploadUrl),
+            headers: {'Content-Type': 'image/png'}, // 👈 Thumbnails are PNGs
+            body: thumbBytes,
+          );
+
+          appLog('🔵 [SYNC] Thumbnail R2 Upload Status: ${thumbUploadRes.statusCode} (${thumbBytes.lengthInBytes} bytes)');
+        }
       }
 
       // 4. Backend Confirmation
+      // Check if a local thumbnail actually existed and was uploaded
+      final bool hasThumb = attachment.localThumbnailPath != null &&
+          attachment.localThumbnailPath!.isNotEmpty &&
+          File(attachment.localThumbnailPath!).existsSync();
+
       appLog('🟡 [SYNC] Confirming upload with backend database...');
       final confirmResponse = await http.post(
         Uri.parse('$_baseUrl/attachments/confirm'),
@@ -202,8 +221,8 @@ class SyncService {
           'transaction_id': attachment.transactionId,
           'file_name': attachment.fileName,
           'cloud_url': cloudUrl,
-          'cloud_thumbnail_url': cloudThumbnailUrl,
-          'file_type': attachment.fileType ?? 'image/jpeg',
+          'cloud_thumbnail_url': hasThumb ? cloudThumbnailUrl : null, // 👈 Send null if no thumb was uploaded
+          'file_type': isPdf ? 'application/pdf' : (attachment.fileType ?? 'image/jpeg'),
         }),
       );
 
@@ -213,9 +232,25 @@ class SyncService {
       if (confirmResponse.statusCode == 200 || confirmResponse.statusCode == 201) {
         appLog('✅ [SYNC] Attachment sync complete and confirmed!');
         return true;
+      } else {
+        appLog('❌ [SYNC] Confirmation failed with status code: ${confirmResponse.statusCode}');
+        return false;
       }
     }
 
     return false;
+  }
+
+  /// Temporary helper to purge stuck items from sync queue
+  Future<void> clearQueue() async {
+    final db = await _database.database;
+    await db.delete('sync_queue');
+    appLog('🧹 [SYNC] Sync queue table cleared completely.');
+  }
+
+  /// Or clear only a specific stuck item by its sync_queue ID
+  Future<void> clearQueueItem(int queueItemId) async {
+    await _database.deleteSyncQueueItem(queueItemId);
+    appLog('🧹 [SYNC] Removed item $queueItemId from sync queue.');
   }
 }

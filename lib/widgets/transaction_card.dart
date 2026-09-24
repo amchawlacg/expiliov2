@@ -22,6 +22,16 @@ class TransactionCard extends StatefulWidget {
 class _TransactionCardState extends State<TransactionCard> {
   bool isHovering = false;
 
+  static const Map<String, String> currencySymbols = {
+    "USD": "\$",
+    "INR": "₹",
+    "EUR": "€",
+    "GBP": "£",
+    "AED": "د.إ",
+    "CAD": "C\$",
+    "AUD": "A\$",
+  };
+
   Color _getAmountColor(BuildContext context, String type) {
     final colors = context.colors;
     switch (type.toLowerCase()) {
@@ -37,12 +47,17 @@ class _TransactionCardState extends State<TransactionCard> {
 
   String _getAmountText(TransactionModel transaction) {
     final type = transaction.transactionType.toLowerCase();
+    final symbol = currencySymbols[transaction.currency] ?? transaction.currency;
+    final formattedAmount = transaction.amount.toStringAsFixed(
+      transaction.amount.truncateToDouble() == transaction.amount ? 0 : 2,
+    );
+
     if (type == 'income') {
-      return "+₹${transaction.amount}";
+      return "+$symbol$formattedAmount";
     } else if (type == 'expense') {
-      return "-₹${transaction.amount}";
+      return "-$symbol$formattedAmount";
     } else {
-      return "⇄ ₹${transaction.amount}";
+      return "⇄ $symbol$formattedAmount";
     }
   }
 
@@ -78,7 +93,7 @@ class _TransactionCardState extends State<TransactionCard> {
     return '$baseCat/other.svg';
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
     final colors = context.colors;
@@ -93,113 +108,98 @@ class _TransactionCardState extends State<TransactionCard> {
 
     final categoryColor = _getCategoryColor(transaction.category ?? "");
 
-    return InkWell(
-      onTap: widget.onTap,
-      onHover: (hovering) {
-        setState(() {
-          isHovering = hovering;
-        });
-      },
-      hoverColor: Colors.transparent,
-      splashColor: Colors.transparent,
-      highlightColor: Colors.transparent,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-        decoration: BoxDecoration(
-          color: isHovering ? colors.cardLight : colors.card,
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-
-            // Circular SVG Avatar
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: categoryColor.withOpacity(0.15),
-              child: SvgPicture.asset(
-                _getCategoryIconPath(
-                  transaction.category,
-                  transaction.subCategory,
-                ),
-                width: 20,
-                height: 20,
-                fit: BoxFit.contain,
-                colorFilter: ColorFilter.mode(
-                  categoryColor,
-                  BlendMode.srcIn,
-                ),
-              ),
-            ),
-
-            const SizedBox(width: 14),
-
-            // Middle details cluster
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    _getTitle(transaction),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => isHovering = true),
+      onExit: (_) => setState(() => isHovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: isHovering
+                ? colors.cardLight.withValues(alpha: 0.5)
+                : colors.cardLight.withValues(alpha: 0.0),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              // WITH THIS:
+SvgPicture.asset(
+  _getCategoryIconPath(
+    transaction.category,
+    transaction.subCategory,
+  ),
+  width: 24,
+  height: 24,
+  fit: BoxFit.contain,
+  colorFilter: ColorFilter.mode(
+    categoryColor,
+    BlendMode.srcIn,
+  ),
+),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _getTitle(transaction),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  // Horizontal meta row (Date | Subcategory)
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.calendar_today,
-                        size: 12,
-                        color: colors.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
-                        style: TextStyle(
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 12,
                           color: colors.textSecondary,
-                          fontSize: 11,
                         ),
-                      ),
-                      if (showSubCategoryInMeta) ...[
+                        const SizedBox(width: 4),
                         Text(
-                          "  |  ",
+                          "${transaction.date.day} ${_getMonthName(transaction.date.month)} ${transaction.date.year}",
                           style: TextStyle(
-                            color: colors.textSecondary.withOpacity(0.3),
+                            color: colors.textSecondary,
                             fontSize: 11,
                           ),
                         ),
-                        Flexible(
-                          child: Text(
-                            transaction.subCategory!.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        if (showSubCategoryInMeta) ...[
+                          Text(
+                            "  |  ",
                             style: TextStyle(
-                              color: colors.textSecondary,
+                              color: colors.textSecondary.withOpacity(0.3),
                               fontSize: 11,
                             ),
                           ),
-                        ),
+                          Flexible(
+                            child: Text(
+                              transaction.subCategory!.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-
-            const SizedBox(width: 8),
-
-            // Right Action / Amount Layout Block
-            Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: Column(
+              const SizedBox(width: 8),
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -211,18 +211,28 @@ class _TransactionCardState extends State<TransactionCard> {
                         transaction.transactionType,
                       ),
                       fontWeight: FontWeight.bold,
-                      fontSize: 15,
+                      fontSize: 13,
                     ),
                   ),
+                  if (transaction.currency.toUpperCase() != "USD") ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      "≈ \$${transaction.baseAmount.toStringAsFixed(2)}",
+                      style: TextStyle(
+                        color: colors.textSecondary.withOpacity(0.6),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
-
   // Helper parsing methods
   String _getMonthName(int month) {
     const months = [

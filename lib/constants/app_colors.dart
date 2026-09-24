@@ -7,9 +7,19 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
   final Color card;
   final Color cardLight;
 
+  // Red & Green Colors
+  final Color red;
+  final Color redLight;
+  final Color green;
+  final Color greenLight;
+
   // Accents & Brand
   final Color primary;
   final Color purple;
+  final Color purpleLight;
+
+  final Color secondary;
+  final Color secondaryLight;
 
   // Text
   final Color textPrimary;
@@ -44,13 +54,22 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
 
   // Shadows
   final Color shadow;
+  final Color idle;
+  final Color hover;
 
   const AppColorScheme({
     required this.background,
     required this.card,
     required this.cardLight,
+    required this.red,
+    required this.green,
+    required this.redLight,
+    required this.greenLight,
     required this.primary,
     required this.purple,
+    required this.purpleLight,
+    required this.secondary,
+    required this.secondaryLight,
     required this.textPrimary,
     required this.textSecondary,
     required this.textHint,
@@ -71,6 +90,8 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     required this.chatBubbleUserText,
     required this.chatBubbleBotText,
     required this.shadow,
+    required this.idle,
+    required this.hover,
   });
 
   // ===========================================================================
@@ -80,8 +101,15 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     background: Color(0xff121212),
     card: Color(0xff1e1e1e),
     cardLight: Color(0xff2a2a2a),
+    red: Color(0xffE03131),
+    redLight: Color(0xFFFFDFDF),
+    green: Color(0xff2B8A3E),
+    greenLight: Color(0xffADEAB9),
     primary: Color(0xff7BC000),
     purple: Color(0xffC8A8FF),
+    purpleLight: Color.fromARGB(255, 209, 182, 255),
+    secondary: Color(0xff2a2a2a),
+    secondaryLight: Color.fromARGB(255, 188, 145, 145),
     textPrimary: Colors.white,
     textSecondary: Color(0xffA8A8A8),
     textHint: Color(0xff7D7D7D),
@@ -102,17 +130,26 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     chatBubbleUserText: Color(0xffD6F8A8),
     chatBubbleBotText: Colors.white,
     shadow: Color(0x33000000),
+    idle: Color.fromARGB(255, 170, 173, 176),
+    hover: Color.fromARGB(255, 129, 130, 131),
   );
 
   // ===========================================================================
   // ☀️ LIGHT THEME PALETTE
   // ===========================================================================
   static const light = AppColorScheme(
-    background: Color.fromARGB(255, 0, 124, 248),
+    background: Color.fromARGB(255, 254, 254, 255),
     card: Color(0xffFFFFFF),
     cardLight: Color(0xffF1F3F5),
+    red: Color(0xffE03131),
+    redLight: Color(0xffffdfdf),
+    green: Color(0xff2B8A3E),
+    greenLight: Color(0xffADEAB9),
     primary: Color(0xff5C940D),
-    purple: Color(0xff7048E8),
+    purple: Color(0xff6F2DBD),
+    purpleLight: Color.fromARGB(255, 135, 79, 199),
+    secondary: Color(0xffFFFFFF),
+    secondaryLight: Color.fromARGB(255, 77, 119, 161),
     textPrimary: Color(0xff212529),
     textSecondary: Color(0xff6C757D),
     textHint: Color(0xffADB5BD),
@@ -133,6 +170,8 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     chatBubbleUserText: Color.fromARGB(255, 251, 252, 251),
     chatBubbleBotText: Color(0xff212529),
     shadow: Color(0x1A000000),
+    idle: Color.fromARGB(255, 170, 173, 176),
+    hover: Color.fromARGB(255, 129, 130, 131),
   );
 
   @override
@@ -140,8 +179,15 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     Color? background,
     Color? card,
     Color? cardLight,
+    Color? red,
+    Color? redLight,
+    Color? green,
+    Color? greenLight,
     Color? primary,
     Color? purple,
+    Color? purpleLight,
+    Color? secondary,
+    Color? secondaryLight,
     Color? textPrimary,
     Color? textSecondary,
     Color? textHint,
@@ -162,13 +208,22 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     Color? chatBubbleUserText,
     Color? chatBubbleBotText,
     Color? shadow,
+    Color? idle,
+    Color? hover,
   }) {
     return AppColorScheme(
       background: background ?? this.background,
       card: card ?? this.card,
       cardLight: cardLight ?? this.cardLight,
+      red: red ?? this.red,
+      redLight: redLight ?? this.redLight,
+      green: green ?? this.green,
+      greenLight: greenLight ?? this.greenLight,
       primary: primary ?? this.primary,
       purple: purple ?? this.purple,
+      purpleLight: purpleLight ?? this.purpleLight,
+      secondary: secondary ?? this.secondary,
+      secondaryLight: secondaryLight ?? this.secondaryLight,
       textPrimary: textPrimary ?? this.textPrimary,
       textSecondary: textSecondary ?? this.textSecondary,
       textHint: textHint ?? this.textHint,
@@ -189,6 +244,8 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       chatBubbleUserText: chatBubbleUserText ?? this.chatBubbleUserText,
       chatBubbleBotText: chatBubbleBotText ?? this.chatBubbleBotText,
       shadow: shadow ?? this.shadow,
+      idle: idle ?? this.idle,
+      hover: hover ?? this.hover,
     );
   }
 
@@ -199,8 +256,15 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       background: Color.lerp(background, other.background, t)!,
       card: Color.lerp(card, other.card, t)!,
       cardLight: Color.lerp(cardLight, other.cardLight, t)!,
+      red: Color.lerp(red, other.red, t)!,
+      redLight: Color.lerp(redLight, other.redLight, t)!,
+      green: Color.lerp(green, other.green, t)!,
+      greenLight: Color.lerp(greenLight, other.greenLight, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
       purple: Color.lerp(purple, other.purple, t)!,
+      purpleLight: Color.lerp(purpleLight, other.purpleLight, t)!,
+      secondary: Color.lerp(secondary, other.secondary, t)!,
+      secondaryLight: Color.lerp(secondaryLight, other.secondaryLight, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       textHint: Color.lerp(textHint, other.textHint, t)!,
@@ -221,6 +285,8 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       chatBubbleUserText: Color.lerp(chatBubbleUserText, other.chatBubbleUserText, t)!,
       chatBubbleBotText: Color.lerp(chatBubbleBotText, other.chatBubbleBotText, t)!,
       shadow: Color.lerp(shadow, other.shadow, t)!,
+      idle: Color.lerp(idle, other.idle, t)!,
+      hover: Color.lerp(hover, other.hover, t)!,
     );
   }
 }

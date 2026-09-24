@@ -7,6 +7,7 @@ import '../widgets/transaction_card.dart';
 import '../constants/app_colors.dart';
 
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/services.dart';
 
 class TransactionListScreen extends StatefulWidget {
   const TransactionListScreen({super.key});
@@ -22,6 +23,10 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
   String selectedRange = "This Month";
   String selectedSort = "Newest First";
   String selectedTypeFilter = "All"; // "All", "Expense", "Income", "Transfer"
+  String selectedProfileFilter = "All"; // "All", "Personal", "Business"
+  List<String> selectedCategories = [
+    "All",
+  ]; // "All" or a list of category names
   double? minAmountFilter;
   double? maxAmountFilter;
 
@@ -86,7 +91,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     );
     _monthPageController = PageController(
       initialPage: (activeDate.year * 12) + (activeDate.month - 1),
-      viewportFraction: 0.32,
+      viewportFraction: 0.22,
     );
     _yearPageController = PageController(
       initialPage: baseIndex + (activeDate.year - 2000),
@@ -197,6 +202,25 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
       list = list.where((t) => t.amount <= maxAmountFilter!).toList();
     }
 
+    // Profile Filter (All, Personal, Business)
+    if (selectedProfileFilter != "All") {
+      list = list.where((t) {
+        return t.profileType.trim().toLowerCase() ==
+            selectedProfileFilter.toLowerCase();
+      }).toList();
+    }
+
+    // Category Multi-Select Filter
+    if (!selectedCategories.contains("All") && selectedCategories.isNotEmpty) {
+      list = list.where((t) {
+        final cat = t.category?.trim();
+        if (cat == null) return false;
+        return selectedCategories.any(
+          (selected) => selected.toLowerCase() == cat.toLowerCase(),
+        );
+      }).toList();
+    }
+
     // Sorting
     if (selectedSort == "Newest First") {
       list.sort((a, b) => b.date.compareTo(a.date));
@@ -214,13 +238,36 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
   double get totalAmount {
     return filteredTransactions.fold(0.0, (sum, item) {
       final type = item.transactionType.toLowerCase();
+      // Use baseAmount so multi-currency amounts sum accurately to USD
+      final val = item.baseAmount;
       if (type == "income") {
-        return sum + item.amount;
+        return sum + val;
       } else if (type == "expense") {
-        return sum - item.amount;
+        return sum - val;
       }
       return sum;
     });
+  }
+
+  Widget _buildCardContainer(List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: context.colors.card,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: context.colors.cardLight.withValues(alpha: 0.6),
+      indent: 16,
+      endIndent: 16,
+    );
   }
 
   Future<void> _pickCustomRange() async {
@@ -483,9 +530,23 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
   void _openFilterSheet() async {
     final colors = context.colors;
-    final options = ["All", "Expense", "Income", "Transfer"];
+    final typeOptions = ["All", "Expense", "Income", "Transfer"];
+    final profileOptions = ["All", "Personal", "Business"];
 
+    // Extract all unique categories present in the loaded transactions
+    final Set<String> distinctCategories = {};
+    for (var t in allTransactions) {
+      if (t.category != null && t.category!.trim().isNotEmpty) {
+        distinctCategories.add(t.category!.trim());
+      }
+    }
+    final sortedCategories = distinctCategories.toList()..sort();
+
+    // Working state inside the bottom sheet
     String tempTypeFilter = selectedTypeFilter;
+    String tempProfileFilter = selectedProfileFilter;
+    List<String> tempCategories = List<String>.from(selectedCategories);
+
     final minController = TextEditingController(
       text: minAmountFilter != null ? minAmountFilter!.toStringAsFixed(0) : "",
     );
@@ -493,250 +554,735 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
       text: maxAmountFilter != null ? maxAmountFilter!.toStringAsFixed(0) : "",
     );
 
-    bool isApplyFilterHovered = false; // 👈 Add this line here
-
     await showModalBottomSheet(
       context: context,
-      backgroundColor: colors.card,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (ctx) {
+        bool isResetHovered = false;
+        bool isApplyHovered = false;
+
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final isAllCategoriesSelected = tempCategories.contains("All");
+
+            String categoryDisplayText;
+            if (isAllCategoriesSelected || tempCategories.isEmpty) {
+              categoryDisplayText = "All Categories";
+            } else if (tempCategories.length == 1) {
+              categoryDisplayText = tempCategories.first;
+            } else {
+              categoryDisplayText = "${tempCategories.length} selected";
+            }
+
             return Padding(
               padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-                left: 20,
-                right: 20,
-                top: 16,
+                left: 16,
+                right: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
               ),
-              child: SafeArea(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: colors.textSecondary.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      "Filter Transactions",
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Column(
-                      children: options.map((type) {
-                        final isSelected = tempTypeFilter == type;
-                        return InkWell(
-                          onTap: () {
-                            setModalState(() {
-                              tempTypeFilter = type;
-                            });
-                          },
-                          borderRadius: BorderRadius.circular(10),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 6,
-                              horizontal: 4,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  type,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: isSelected
-                                        ? colors.purple
-                                        : colors.textPrimary,
-                                    fontWeight: isSelected
-                                        ? FontWeight.bold
-                                        : FontWeight.w500,
-                                  ),
-                                ),
-                                if (isSelected)
-                                  Icon(
-                                    Icons.check,
-                                    color: colors.purple,
-                                    size: 18,
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: minController,
-                            keyboardType: TextInputType.number,
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 14,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: "Min (₹)",
-                              hintStyle: TextStyle(
-                                color: colors.textSecondary.withOpacity(0.5),
-                              ),
-                              filled: true,
-                              fillColor: colors.cardLight,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                              isDense: true,
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: colors.textSecondary.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: maxController,
-                            keyboardType: TextInputType.number,
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 14,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: "Max (₹)",
-                              hintStyle: TextStyle(
-                                color: colors.textSecondary.withOpacity(0.5),
-                              ),
-                              filled: true,
-                              fillColor: colors.cardLight,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(
-                                0,
-                                kMinInteractiveDimension,
-                              ),
-                              side: BorderSide(
-                                color: colors.textSecondary.withOpacity(0.3),
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                selectedTypeFilter = "All";
-                                minAmountFilter = null;
-                                maxAmountFilter = null;
-                              });
-                              Navigator.pop(ctx);
-                            },
-                            child: Text(
-                              "Reset",
+                        const SizedBox(height: 14),
+
+                        // Header Row
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Filter Transactions",
                               style: TextStyle(
                                 color: colors.textPrimary,
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 1. Payment Profile Dropdown (Height 44, matching Min/Max, with Checkmark)
+                        Text(
+                          "PAYMENT PROFILE",
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: MouseRegion(
-                            onEnter: (_) => setModalState(
-                              () => isApplyFilterHovered = true,
-                            ),
-                            onExit: (_) => setModalState(
-                              () => isApplyFilterHovered = false,
-                            ),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeInOut,
-                              decoration: BoxDecoration(
-                                color: isApplyFilterHovered
-                                    ? Color.alphaBlend(
-                                        Colors.black.withValues(alpha: 0.25),
-                                        colors.purple,
-                                      )
-                                    : colors.purple,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  elevation: 0,
-                                  shadowColor: Colors.transparent,
-                                  backgroundColor: Colors.transparent,
-                                  surfaceTintColor: Colors.transparent,
-                                  minimumSize: const Size(
-                                    0,
-                                    kMinInteractiveDimension,
+                        const SizedBox(height: 8),
+                        Builder(
+                          builder: (profileCtx) {
+                            return GestureDetector(
+                              onTap: () async {
+                                final renderBox =
+                                    profileCtx.findRenderObject() as RenderBox;
+                                final overlay =
+                                    Navigator.of(
+                                          context,
+                                        ).overlay!.context.findRenderObject()
+                                        as RenderBox;
+
+                                final position = RelativeRect.fromRect(
+                                  Rect.fromPoints(
+                                    renderBox.localToGlobal(
+                                      Offset.zero,
+                                      ancestor: overlay,
+                                    ),
+                                    renderBox.localToGlobal(
+                                      renderBox.size.bottomRight(Offset.zero),
+                                      ancestor: overlay,
+                                    ),
+                                  ),
+                                  Offset.zero & overlay.size,
+                                );
+
+                                final selected = await showMenu<String>(
+                                  context: context,
+                                  color: colors.card,
+                                  elevation: 6,
+                                  constraints: BoxConstraints(
+                                    minWidth: renderBox.size.width,
+                                    maxWidth: renderBox.size.width,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
+                                  position: position,
+                                  items: profileOptions.map((opt) {
+                                    final isSelected = opt == tempProfileFilter;
+                                    return PopupMenuItem<String>(
+                                      value: opt,
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            opt,
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? colors.purple
+                                                  : colors.textPrimary,
+                                              fontSize: 14,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.normal,
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            Icon(
+                                              Icons.check,
+                                              color: colors.purple,
+                                              size: 18,
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                );
+
+                                if (selected != null) {
+                                  setModalState(
+                                    () => tempProfileFilter = selected,
+                                  );
+                                }
+                              },
+                              child: Container(
+                                height: 44,
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
                                 ),
-                                onPressed: () {
-                                  setState(() {
-                                    selectedTypeFilter = tempTypeFilter;
-                                    minAmountFilter = double.tryParse(
-                                      minController.text.trim(),
-                                    );
-                                    maxAmountFilter = double.tryParse(
-                                      maxController.text.trim(),
-                                    );
-                                  });
-                                  Navigator.pop(ctx);
-                                },
-                                child: const Text(
-                                  "Apply Filter",
+                                decoration: BoxDecoration(
+                                  color: colors.cardLight,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      tempProfileFilter,
+                                      style: TextStyle(
+                                        color: colors.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.normal,
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.keyboard_arrow_down,
+                                      size: 20,
+                                      color: colors.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 2. Categories Multi-Select Dropdown (Height 44, instant toggle, crisp purple checkmark)
+                        Text(
+                          "CATEGORIES",
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Builder(
+                          builder: (fieldCtx) {
+                            return GestureDetector(
+                              onTap: () async {
+                                final renderBox =
+                                    fieldCtx.findRenderObject() as RenderBox;
+                                final overlay =
+                                    Navigator.of(
+                                          context,
+                                        ).overlay!.context.findRenderObject()
+                                        as RenderBox;
+
+                                final position = RelativeRect.fromRect(
+                                  Rect.fromPoints(
+                                    renderBox.localToGlobal(
+                                      Offset.zero,
+                                      ancestor: overlay,
+                                    ),
+                                    renderBox.localToGlobal(
+                                      renderBox.size.bottomRight(Offset.zero),
+                                      ancestor: overlay,
+                                    ),
+                                  ),
+                                  Offset.zero & overlay.size,
+                                );
+
+                                await showMenu<void>(
+                                  context: context,
+                                  color: colors.card,
+                                  elevation: 6,
+                                  constraints: BoxConstraints(
+                                    minWidth: renderBox.size.width,
+                                    maxWidth: renderBox.size.width,
+                                    maxHeight: 280,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  position: position,
+                                  items: [
+                                    PopupMenuItem<void>(
+                                      enabled: false,
+                                      padding: EdgeInsets.zero,
+                                      child: Theme(
+                                        data: Theme.of(context).copyWith(
+                                          disabledColor: colors.textPrimary,
+                                        ),
+                                        child: StatefulBuilder(
+                                          builder: (menuCtx, menuSetState) {
+                                            final isAllActive = tempCategories
+                                                .contains("All");
+
+                                            return SingleChildScrollView(
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  // "All" Row
+                                                  InkWell(
+                                                    onTap: () {
+                                                      setModalState(() {
+                                                        tempCategories.clear();
+                                                        tempCategories.add(
+                                                          "All",
+                                                        );
+                                                      });
+                                                      menuSetState(() {});
+                                                    },
+                                                    child: Padding(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 16,
+                                                            vertical: 12,
+                                                          ),
+                                                      child: Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .spaceBetween,
+                                                        children: [
+                                                          Text(
+                                                            "All",
+                                                            style: TextStyle(
+                                                              color: isAllActive
+                                                                  ? colors
+                                                                        .purple
+                                                                  : colors
+                                                                        .textPrimary,
+                                                              fontSize: 14,
+                                                              fontWeight:
+                                                                  isAllActive
+                                                                  ? FontWeight
+                                                                        .bold
+                                                                  : FontWeight
+                                                                        .normal,
+                                                            ),
+                                                          ),
+                                                          if (isAllActive)
+                                                            Icon(
+                                                              Icons.check,
+                                                              color:
+                                                                  colors.purple,
+                                                              size: 18,
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const Divider(
+                                                    height: 1,
+                                                    thickness: 0.5,
+                                                  ),
+                                                  // Individual Category Rows
+                                                  ...sortedCategories.map((
+                                                    cat,
+                                                  ) {
+                                                    final isSelected =
+                                                        tempCategories.contains(
+                                                          cat,
+                                                        );
+                                                    return InkWell(
+                                                      onTap: () {
+                                                        setModalState(() {
+                                                          tempCategories.remove(
+                                                            "All",
+                                                          );
+                                                          if (isSelected) {
+                                                            tempCategories
+                                                                .remove(cat);
+                                                            if (tempCategories
+                                                                .isEmpty) {
+                                                              tempCategories
+                                                                  .add("All");
+                                                            }
+                                                          } else {
+                                                            tempCategories.add(
+                                                              cat,
+                                                            );
+                                                          }
+                                                        });
+                                                        menuSetState(() {});
+                                                      },
+                                                      child: Padding(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 16,
+                                                              vertical: 12,
+                                                            ),
+                                                        child: Row(
+                                                          mainAxisAlignment:
+                                                              MainAxisAlignment
+                                                                  .spaceBetween,
+                                                          children: [
+                                                            Expanded(
+                                                              child: Text(
+                                                                cat,
+                                                                maxLines: 1,
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .ellipsis,
+                                                                style: TextStyle(
+                                                                  color:
+                                                                      isSelected
+                                                                      ? colors
+                                                                            .purple
+                                                                      : colors
+                                                                            .textPrimary,
+                                                                  fontSize: 14,
+                                                                  fontWeight:
+                                                                      isSelected
+                                                                      ? FontWeight
+                                                                            .bold
+                                                                      : FontWeight
+                                                                            .normal,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            if (isSelected)
+                                                              Icon(
+                                                                Icons.check,
+                                                                color: colors
+                                                                    .purple,
+                                                                size: 18,
+                                                              ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                              child: Container(
+                                height: 44,
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colors.cardLight,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        categoryDisplayText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: colors.textPrimary,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.normal,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.keyboard_arrow_down,
+                                      size: 20,
+                                      color: colors.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 3. Transaction Type (Expense, Income, Transfer, All)
+                        Text(
+                          "TYPE",
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Column(
+                          children: typeOptions.map((type) {
+                            final isSelected = tempTypeFilter == type;
+                            return InkWell(
+                              onTap: () =>
+                                  setModalState(() => tempTypeFilter = type),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                  horizontal: 4,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      type,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: isSelected
+                                            ? colors.purple
+                                            : colors.textPrimary,
+                                        fontWeight: isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.w500,
+                                      ),
+                                    ),
+                                    if (isSelected)
+                                      Icon(
+                                        Icons.check,
+                                        color: colors.purple,
+                                        size: 18,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // 4. Amount Range (Exact 44 height matching dropdowns)
+                        Text(
+                          "AMOUNT RANGE",
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  controller: minController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d*\.?\d*'),
+                                    ),
+                                  ],
                                   style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
+                                    color: colors.textPrimary,
                                     fontSize: 14,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: "Min (\$)",
+                                    hintStyle: TextStyle(
+                                      color: colors.textSecondary.withOpacity(
+                                        0.5,
+                                      ),
+                                    ),
+                                    filled: true,
+                                    fillColor: colors.cardLight,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    isDense: true,
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  controller: maxController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d*\.?\d*'),
+                                    ),
+                                  ],
+                                  style: TextStyle(
+                                    color: colors.textPrimary,
+                                    fontSize: 14,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: "Max (\$)",
+                                    hintStyle: TextStyle(
+                                      color: colors.textSecondary.withOpacity(
+                                        0.5,
+                                      ),
+                                    ),
+                                    filled: true,
+                                    fillColor: colors.cardLight,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Reset and Apply Buttons
+                        // Reset and Apply Buttons
+                        Row(
+                          children: [
+                            // Reset Button
+                            Expanded(
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                onEnter: (_) =>
+                                    setModalState(() => isResetHovered = true),
+                                onExit: (_) =>
+                                    setModalState(() => isResetHovered = false),
+                                child: AnimatedContainer(
+                                  height: 38,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeInOut,
+                                  decoration: BoxDecoration(
+                                    color: isResetHovered
+                                        ? colors.secondaryLight
+                                        : colors.secondary,
+                                    /*color: colors.cardLight.withValues(
+                                      alpha: isResetHovered ? 0.20 : 0.0,
+                                    ),*/
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: colors.cardLight.withValues(
+                                        alpha: isResetHovered ? 1.0 : 0.8,
+                                      ),
+                                      width: 1.0,
+                                    ),
+                                  ),
+                                  child: OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      elevation: 0,
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      surfaceTintColor: Colors.transparent,
+                                      overlayColor: Colors.transparent,
+                                      minimumSize: Size.zero,
+                                      side: BorderSide.none,
+                                      padding: EdgeInsets.zero,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      setModalState(() {
+                                        tempTypeFilter = "All";
+                                        tempProfileFilter = "All";
+                                        tempCategories = ["All"];
+                                        minController.clear();
+                                        maxController.clear();
+                                      });
+                                    },
+                                    child: Text(
+                                      "Reset",
+                                      style: TextStyle(
+                                        color: colors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+
+                            // Apply Button
+                            Expanded(
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                onEnter: (_) =>
+                                    setModalState(() => isApplyHovered = true),
+                                onExit: (_) =>
+                                    setModalState(() => isApplyHovered = false),
+                                child: AnimatedContainer(
+                                  height: 38,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeInOut,
+                                  decoration: BoxDecoration(
+                                    color: isApplyHovered
+                                        ? colors.purpleLight
+                                        : colors.purple,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      elevation: 0,
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      surfaceTintColor: Colors.transparent,
+                                      overlayColor: Colors.transparent,
+                                      minimumSize: Size.zero,
+                                      padding: EdgeInsets.zero,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        selectedTypeFilter = tempTypeFilter;
+                                        selectedProfileFilter =
+                                            tempProfileFilter;
+                                        selectedCategories = tempCategories;
+                                        minAmountFilter = double.tryParse(
+                                          minController.text,
+                                        );
+                                        maxAmountFilter = double.tryParse(
+                                          maxController.text,
+                                        );
+                                      });
+                                      Navigator.pop(ctx);
+                                    },
+                                    child: const Text(
+                                      "Apply",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -757,76 +1303,85 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: colors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.textSecondary.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(10),
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.textSecondary.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                "Sort Transactions",
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                const SizedBox(height: 14),
+                Text(
+                  "Sort Transactions",
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Column(
-                children: options.map((sort) {
-                  final isSelected = selectedSort == sort;
-                  return InkWell(
-                    onTap: () {
-                      setState(() => selectedSort = sort);
-                      Navigator.pop(ctx);
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 6,
-                        horizontal: 4,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            sort,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: isSelected
-                                  ? colors.purple
-                                  : colors.textPrimary,
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.w500,
+                const SizedBox(height: 8),
+                Column(
+                  children: options.map((sort) {
+                    final isSelected = selectedSort == sort;
+                    return InkWell(
+                      onTap: () {
+                        setState(() => selectedSort = sort);
+                        Navigator.pop(ctx);
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 6,
+                          horizontal: 4,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              sort,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: isSelected
+                                    ? colors.purple
+                                    : colors.textPrimary,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          if (isSelected)
-                            Icon(Icons.check, color: colors.purple, size: 18),
-                        ],
+                            if (isSelected)
+                              Icon(Icons.check, color: colors.purple, size: 18),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 8),
-            ],
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -838,8 +1393,9 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: PageView.builder(
         key: const ValueKey("days_slider"),
         controller: _dayPageController,
@@ -858,13 +1414,27 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
               date.month == activeDate.month &&
               date.day == activeDate.day;
 
-          return Center(
-            child: Text(
-              "${date.day} ${months[date.month - 1].substring(0, 3)}",
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _dayPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                "${date.day} ${months[date.month - 1].substring(0, 3)}",
+                style: TextStyle(
+                  fontSize: isSelected ? 16 : 10,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: colors.textPrimary.withOpacity(
+                    isSelected ? 1.0 : 0.35,
+                  ),
+                ),
               ),
             ),
           );
@@ -876,11 +1446,13 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
   Widget _buildHorizontalMonths() {
     final colors = context.colors;
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
       child: PageView.builder(
         key: const ValueKey("months_slider"),
         controller: _monthPageController,
+        clipBehavior: Clip.none,
         physics: const BouncingScrollPhysics(),
         onPageChanged: (page) {
           final year = page ~/ 12;
@@ -896,17 +1468,36 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
               year == activeDate.year && (monthIndex + 1) == activeDate.month;
 
           final isCurrentYear = year == DateTime.now().year;
-          final displayText = isCurrentYear
-              ? months[monthIndex]
-              : "${months[monthIndex].substring(0, 3)} '$year";
+          final shortName = months[monthIndex].substring(0, 3);
 
-          return Center(
-            child: Text(
-              displayText,
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          final String displayText;
+          if (isSelected) {
+            displayText = isCurrentYear
+                ? months[monthIndex]
+                : "${months[monthIndex]} '$year";
+          } else {
+            displayText = isCurrentYear ? shortName : "$shortName '$year";
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _monthPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                displayText,
+                style: TextStyle(
+                  fontSize: isSelected ? 13 : 10,
+                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.w500,
+                  color: isSelected ? colors.textPrimary : colors.textSecondary,
+                ),
               ),
             ),
           );
@@ -918,11 +1509,13 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
   Widget _buildHorizontalYears() {
     final colors = context.colors;
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: PageView.builder(
         key: const ValueKey("years_slider"),
         controller: _yearPageController,
+        clipBehavior: Clip.none,
         physics: const BouncingScrollPhysics(),
         onPageChanged: (page) {
           final computedYear = 2000 + (page - baseIndex);
@@ -934,13 +1527,27 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
           final year = 2000 + (index - baseIndex);
           final isSelected = year == activeDate.year;
 
-          return Center(
-            child: Text(
-              "$year",
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _yearPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                "$year",
+                style: TextStyle(
+                  fontSize: isSelected ? 16 : 10,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: colors.textPrimary.withOpacity(
+                    isSelected ? 1.0 : 0.35,
+                  ),
+                ),
               ),
             ),
           );
@@ -960,6 +1567,16 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     return const SizedBox.shrink();
   }
 
+  Widget _buildFullWidthDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: context.colors.cardLight.withValues(
+        alpha: 0.6,
+      ), // Adjust color/opacity to match your theme
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -970,7 +1587,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
             // 1. Top Header Row (Centered Date Dropdown + Right-aligned Action Icons)
             Padding(
@@ -988,16 +1605,14 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                         onExit: (_) =>
                             setState(() => _isRangeDropdownHovered = false),
                         child: AnimatedContainer(
+                          height: 38,
                           duration: const Duration(milliseconds: 200),
                           curve: Curves.easeInOut,
                           decoration: BoxDecoration(
                             color: _isRangeDropdownHovered
-                                ? Color.alphaBlend(
-                                    Colors.black.withValues(alpha: 0.25),
-                                    colors.purple,
-                                  )
+                                ? colors.purpleLight
                                 : colors.purple,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(999),
                           ),
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
@@ -1005,16 +1620,13 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                               shadowColor: Colors.transparent,
                               backgroundColor: Colors.transparent,
                               surfaceTintColor: Colors.transparent,
-                              minimumSize: const Size(
-                                0,
-                                kMinInteractiveDimension,
-                              ),
+                              minimumSize: Size.zero,
                               overlayColor: Colors.transparent,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(999),
                               ),
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
+                                horizontal: 14,
                               ),
                             ),
                             onPressed: () async {
@@ -1096,15 +1708,15 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                   selectedRange,
                                   style: const TextStyle(
                                     color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 4),
                                 const Icon(
                                   Icons.keyboard_arrow_down,
                                   color: Colors.white,
-                                  size: 20,
+                                  size: 18,
                                 ),
                               ],
                             ),
@@ -1114,13 +1726,12 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                     },
                   ),
                   // Filter & Sort SVG Icons pinned to the right
-                  // Filter & Sort SVG Icons pinned to the right
                   Align(
                     alignment: Alignment.centerRight,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Filter Button
+                        // 1. Filter Button
                         MouseRegion(
                           cursor: SystemMouseCursors.click,
                           onEnter: (_) =>
@@ -1130,28 +1741,31 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: _openFilterSheet,
-                            child: SvgPicture.asset(
-                              'assets/icons/components/filter.svg',
-                              width: 22,
-                              height: 22,
-                              colorFilter: ColorFilter.mode(
-                                _isFilterHovered
-                                    ? Color.alphaBlend(
-                                        Colors.black.withValues(alpha: 0.35),
-                                        colors.textPrimary,
-                                      )
-                                    : (selectedTypeFilter != "All" ||
-                                              minAmountFilter != null ||
-                                              maxAmountFilter != null
-                                          ? colors.purple
-                                          : colors.textPrimary),
-                                BlendMode.srcIn,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: _isFilterHovered
+                                    ? colors.cardLight
+                                    : colors.cardLight.withValues(alpha: 0),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: SvgPicture.asset(
+                                'assets/icons/components/filter.svg',
+                                width: 20,
+                                height: 20,
+                                // REPLACE WITH:
+                                colorFilter: ColorFilter.mode(
+                                  colors.textPrimary,
+                                  BlendMode.srcIn,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        // Sort Button
+                        const SizedBox(width: 4),
+
+                        // 2. Sort Button
                         MouseRegion(
                           cursor: SystemMouseCursors.click,
                           onEnter: (_) => setState(() => _isSortHovered = true),
@@ -1159,20 +1773,23 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: _openSortSheet,
-                            child: SvgPicture.asset(
-                              'assets/icons/components/sort.svg',
-                              width: 22,
-                              height: 22,
-                              colorFilter: ColorFilter.mode(
-                                _isSortHovered
-                                    ? Color.alphaBlend(
-                                        Colors.black.withValues(alpha: 0.35),
-                                        colors.textPrimary,
-                                      )
-                                    : (selectedSort != "Newest First"
-                                          ? colors.purple
-                                          : colors.textPrimary),
-                                BlendMode.srcIn,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: _isSortHovered
+                                    ? colors.cardLight
+                                    : colors.cardLight.withValues(alpha: 0),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: SvgPicture.asset(
+                                'assets/icons/components/sort.svg',
+                                width: 20,
+                                height: 20,
+                                colorFilter: ColorFilter.mode(
+                                  colors.textPrimary,
+                                  BlendMode.srcIn,
+                                ),
                               ),
                             ),
                           ),
@@ -1186,19 +1803,44 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
             const SizedBox(height: 12),
 
-            // 2. Dynamic Total for Range
-            Text(
-              "₹ ${totalAmount.abs().toStringAsFixed(2)}",
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: colors.textPrimary,
-              ),
+            // 2. Dynamic Total for Range (in base currency USD)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Baseline(
+                  baseline: 30, // Scaled for the 32px number size
+                  baselineType: TextBaseline.alphabetic,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6.0),
+                    child: Text(
+                      "\$",
+                      style: TextStyle(
+                        fontSize: 20,
+                        color:
+                            colors.textPrimary, // Keeps the default text color
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                Text(
+                  totalAmount.abs().toStringAsFixed(2),
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
             ),
 
-            const SizedBox(height: 6),
+            const SizedBox(height: 0),
             _buildTimeframeSlider(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+            // 👇 Full screen width divider directly under the slider
+            _buildFullWidthDivider(),
 
             // 4. Transaction List
             Expanded(
@@ -1209,38 +1851,44 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                         style: TextStyle(color: colors.textSecondary),
                       ),
                     )
-                  : ListView.builder(
+                  : SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
                       padding: const EdgeInsets.only(top: 4, bottom: 0),
-                      itemCount: currentList.length,
-                      itemBuilder: (context, index) {
-                        final transaction = currentList[index];
-
-                        return TransactionCard(
-                          transaction: transaction,
-                          onTap: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => AddTransactionScreen(
-                                  transaction: transaction,
+                      child: _buildCardContainer(
+                        List.generate(currentList.length * 2 - 1, (index) {
+                          if (index.isOdd) {
+                            return _buildDivider();
+                          }
+                          final itemIndex = index ~/ 2;
+                          final transaction = currentList[itemIndex];
+                          return TransactionCard(
+                            transaction: transaction,
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AddTransactionScreen(
+                                    transaction: transaction,
+                                  ),
                                 ),
-                              ),
-                            );
-                            loadTransactions();
-                          },
-                          onDelete: () async {
-                            await transactionService.deleteTransaction(
-                              transaction.id!,
-                            );
-                            loadTransactions();
-                          },
-                        );
-                      },
+                              );
+                              loadTransactions();
+                            },
+                            onDelete: () async {
+                              await transactionService.deleteTransaction(
+                                transaction.id!,
+                              );
+                              loadTransactions();
+                            },
+                          );
+                        }),
+                      ),
                     ),
             ),
           ],
         ),
       ),
+
       floatingActionButton: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _isAddButtonHovered = true),
@@ -1256,13 +1904,23 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
             );
             loadTransactions();
           },
-          child: SvgPicture.asset(
-            'assets/icons/components/add-square.svg',
-            width: 48,
-            height: 48,
-            colorFilter: ColorFilter.mode(
-              colors.purple.withOpacity(_isAddButtonHovered ? 0.75 : 0.35),
-              BlendMode.srcIn,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            switchInCurve: Curves.easeInOut,
+            switchOutCurve: Curves.easeInOut,
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            child: SvgPicture.asset(
+              _isAddButtonHovered
+                  ? 'assets/icons/components/add.svg'
+                  : 'assets/icons/components/add_outline.svg',
+              key: ValueKey<bool>(
+                _isAddButtonHovered,
+              ), // 👈 Essential for AnimatedSwitcher to detect the change
+              width: 42,
+              height: 42,
+              colorFilter: ColorFilter.mode(colors.purple, BlendMode.srcIn),
             ),
           ),
         ),

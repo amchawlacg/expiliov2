@@ -4,6 +4,9 @@ class TransactionModel {
   final int? id;
   final String userId;
   final double amount;
+  final String currency;
+  final double exchangeRate;
+  final double baseAmount;
   final String transactionType; // expense, income, transfer
   final String profileType; // personal, business
   final String? category;
@@ -16,12 +19,15 @@ class TransactionModel {
   final String source; // manual, chat, voice, receipt
   final DateTime createdAt;
   final DateTime updatedAt;
-  final List<AttachmentModel> attachments; // Added attachments list
+  final List<AttachmentModel> attachments;
 
   TransactionModel({
     this.id,
     required this.userId,
     required this.amount,
+    this.currency = 'USD',
+    this.exchangeRate = 1.0,
+    double? baseAmount,
     required this.transactionType,
     required this.profileType,
     this.category,
@@ -34,13 +40,16 @@ class TransactionModel {
     required this.source,
     required this.createdAt,
     required this.updatedAt,
-    this.attachments = const [], // Default to empty list
-  });
+    this.attachments = const [],
+  }) : baseAmount = baseAmount ?? (amount * (exchangeRate != 0.0 ? exchangeRate : 1.0));
 
   TransactionModel copyWith({
     int? id,
     String? userId,
     double? amount,
+    String? currency,
+    double? exchangeRate,
+    double? baseAmount,
     String? transactionType,
     String? profileType,
     String? category,
@@ -59,6 +68,9 @@ class TransactionModel {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       amount: amount ?? this.amount,
+      currency: currency ?? this.currency,
+      exchangeRate: exchangeRate ?? this.exchangeRate,
+      baseAmount: baseAmount ?? this.baseAmount,
       transactionType: transactionType ?? this.transactionType,
       profileType: profileType ?? this.profileType,
       category: category ?? this.category,
@@ -80,6 +92,9 @@ class TransactionModel {
       if (id != null) 'id': id,
       'user_id': userId,
       'amount': amount,
+      'currency': currency,
+      'exchange_rate': exchangeRate,
+      'base_amount': baseAmount,
       'transaction_type': transactionType,
       'profile_type': profileType,
       'category': category,
@@ -99,10 +114,17 @@ class TransactionModel {
     Map<String, dynamic> map, {
     List<AttachmentModel> attachments = const [],
   }) {
+    final double rawAmount = (map['amount'] as num).toDouble();
+    final double rate = (map['exchange_rate'] as num?)?.toDouble() ?? 1.0;
+    final double computedBase = (map['base_amount'] as num?)?.toDouble() ?? (rawAmount * rate);
+
     return TransactionModel(
       id: map['id'] as int?,
       userId: map['user_id'] as String,
-      amount: (map['amount'] as num).toDouble(),
+      amount: rawAmount,
+      currency: map['currency'] as String? ?? 'USD',
+      exchangeRate: rate,
+      baseAmount: computedBase,
       transactionType: map['transaction_type'] as String,
       profileType: map['profile_type'] as String,
       category: map['category'] as String?,

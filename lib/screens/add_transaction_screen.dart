@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart'; // Make sure this import is at the top
-
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -17,27 +16,31 @@ import '../constants/expense_categories.dart';
 import '../constants/app_colors.dart';
 
 import '../widgets/transaction_option_tile.dart';
-import '../services/sync_service.dart'; // Make sure this import exists at top of file
+import '../services/sync_service.dart';
 
 import '../database/database_helper.dart';
 import '../utils/app_logger.dart';
 
 import '../widgets/attachment_thumbnail_view.dart';
-import '../screens/attachment_gallery_screen.dart';
+import 'attachment_gallery_screen.dart';
 
 import '../models/category_model.dart';
 import '../services/category_service.dart';
+
+import '../widgets/app_alert_dialog.dart';
 
 import 'package:flutter_svg/flutter_svg.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final TransactionModel? transaction;
   final TransactionModel? draftTransaction;
+  final List<AttachmentModel>? initialAttachments; // 👈 Add this
 
   const AddTransactionScreen({
     super.key,
     this.transaction,
     this.draftTransaction,
+    this.initialAttachments, // 👈 Add this
   });
 
   @override
@@ -55,6 +58,22 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String transactionType = "expense";
   String profileType = "Personal";
   String paymentMethod = "Cash";
+  String selectedCurrency = "USD";
+
+  String? _hoveredToggleTab;
+
+  final exchangeRateController = TextEditingController(text: "1.0");
+  double exchangeRate = 1.0;
+
+  final Map<String, String> currencySymbols = {
+    "INR": "₹",
+    "USD": "\$",
+    "EUR": "€",
+    "GBP": "£",
+    "AED": "د.إ",
+    "CAD": "C\$",
+    "AUD": "A\$",
+  };
 
   DateTime selectedDate = DateTime.now();
   File? selectedInvoice;
@@ -65,16 +84,40 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   final attachmentService = AttachmentService();
   final categoryService = CategoryService();
 
-  String?
-  _hoveredTypeButton; // 👈 Tracks which type button is currently hovered
-  bool _isSaveHovered = false; // 👈 Tracks hover for Save button
-
+  String? _hoveredTypeButton;
+  bool _isSaveHovered = false;
   bool _isBackHovered = false;
   bool _isDeleteHovered = false;
+
+  void _onCurrencyChanged(String newCurrency) {
+    setState(() {
+      selectedCurrency = newCurrency;
+      if (newCurrency == "USD") {
+        exchangeRateController.text = "1.0";
+      } else {
+        const defaultRatesToUSD = {
+          "INR": 0.012,
+          "EUR": 1.08,
+          "GBP": 1.27,
+          "AED": 0.27,
+          "CAD": 0.73,
+          "AUD": 0.65,
+        };
+        final rate = defaultRatesToUSD[newCurrency] ?? 1.0;
+        exchangeRateController.text = rate.toString();
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+
+    // 👈 If initial attachments were passed from chat, pre-populate them
+    if (widget.initialAttachments != null && widget.initialAttachments!.isNotEmpty) {
+      attachments = List.from(widget.initialAttachments!);
+      selectedInvoice = File(attachments.last.localPath ?? attachments.last.fileName);
+    }
 
     final transaction = widget.transaction ?? widget.draftTransaction;
 
@@ -86,6 +129,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       merchantController.text = transaction.merchant ?? "";
       paymentNameController.text = transaction.paymentName ?? "";
       paymentMethod = transaction.paymentMethod ?? "Cash";
+      selectedCurrency = transaction.currency;
+      exchangeRateController.text = transaction.exchangeRate.toString();
       transactionType = transaction.transactionType;
       profileType = transaction.profileType;
       selectedDate = transaction.date;
@@ -120,7 +165,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     setState(() {
       categories = fetched;
       if (categories.isNotEmpty) {
-        // If not editing an existing transaction, pick the first category and subcategory
         if (selectedCategory.isEmpty) {
           selectedCategory = categories.first.name;
           selectedSubcategory = categories.first.subcategories.isNotEmpty
@@ -140,14 +184,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> loadAttachments() async {
-    if (widget.transaction == null) {
-      return;
-    }
-
+    if (widget.transaction == null) return;
     attachments = await attachmentService.getAttachments(
       widget.transaction!.id!,
     );
-
     setState(() {});
   }
 
@@ -174,13 +214,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     int tempMonth = selectedDate.month;
     int tempDay = selectedDate.day;
 
-    const int yearBase = 12120; // 101 * 120 (Exact multiple of 101)
-    const int monthBase = 12000; // 12 * 1000 (Exact multiple of 12)
+    const int yearBase = 12120;
+    const int monthBase = 12000;
 
     int currentDaysCount = DateUtils.getDaysInMonth(tempYear, tempMonth);
-    int dayBase =
-        (12000 ~/ currentDaysCount) *
-        currentDaysCount; // Exact multiple of currentDaysCount
+    int dayBase = (12000 ~/ currentDaysCount) * currentDaysCount;
 
     final yearController = FixedExtentScrollController(
       initialItem: yearBase + years.indexOf(tempYear),
@@ -194,11 +232,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     await showModalBottomSheet(
       context: context,
-      backgroundColor: colors.card,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
@@ -207,12 +243,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               tempMonth,
             );
 
-            // Re-sync controller when month length changes (e.g. leap year or 30/31 days)
             if (daysInCurrentMonth != currentDaysCount) {
               currentDaysCount = daysInCurrentMonth;
-              if (tempDay > daysInCurrentMonth) {
-                tempDay = daysInCurrentMonth;
-              }
+              if (tempDay > daysInCurrentMonth) tempDay = daysInCurrentMonth;
               dayBase = (12000 ~/ currentDaysCount) * currentDaysCount;
               dayController.dispose();
               dayController = FixedExtentScrollController(
@@ -221,9 +254,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             }
 
             void updateDate() {
-              if (tempDay > daysInCurrentMonth) {
-                tempDay = daysInCurrentMonth;
-              }
+              if (tempDay > daysInCurrentMonth) tempDay = daysInCurrentMonth;
               setState(() {
                 selectedDate = DateTime(tempYear, tempMonth, tempDay);
               });
@@ -271,103 +302,130 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               );
             }
 
-            return SizedBox(
-              height: 380,
-              width: double.infinity,
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: colors.textSecondary.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          height: 42,
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
                           decoration: BoxDecoration(
-                            color: colors.iconCircle.withOpacity(0.4),
+                            color: colors.textSecondary.withOpacity(0.4),
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        Row(
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        "Select Date",
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 280,
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            // 1. Year (Cyclic)
-                            Expanded(
-                              flex: 2,
-                              child: buildInfiniteWheel(
-                                key: const ValueKey('year_wheel'),
-                                controller: yearController,
-                                moduloCount: years.length,
-                                currentSelectedValue: years.indexOf(tempYear),
-                                labelBuilder: (val) => "${years[val]}",
-                                onSelectedItemChanged: (index) {
-                                  setModalState(() {
-                                    final val =
-                                        ((index % years.length) +
-                                            years.length) %
-                                        years.length;
-                                    tempYear = years[val];
-                                  });
-                                  updateDate();
-                                },
+                            Container(
+                              height: 42,
+                              margin: const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: colors.iconCircle.withOpacity(0.4),
+                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
-                            // 2. Month (Cyclic: Dec -> Jan -> Feb...)
-                            Expanded(
-                              flex: 3,
-                              child: buildInfiniteWheel(
-                                key: const ValueKey('month_wheel'),
-                                controller: monthController,
-                                moduloCount: 12,
-                                currentSelectedValue: tempMonth - 1,
-                                labelBuilder: (val) => months[val],
-                                onSelectedItemChanged: (index) {
-                                  setModalState(() {
-                                    final val = ((index % 12) + 12) % 12;
-                                    tempMonth = val + 1;
-                                  });
-                                  updateDate();
-                                },
-                              ),
-                            ),
-                            // 3. Day (Cyclic with dynamic modulo alignment)
-                            Expanded(
-                              flex: 2,
-                              child: buildInfiniteWheel(
-                                key: ValueKey(
-                                  'day_wheel_${daysInCurrentMonth}',
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: buildInfiniteWheel(
+                                    key: const ValueKey('year_wheel'),
+                                    controller: yearController,
+                                    moduloCount: years.length,
+                                    currentSelectedValue: years.indexOf(
+                                      tempYear,
+                                    ),
+                                    labelBuilder: (val) => "${years[val]}",
+                                    onSelectedItemChanged: (index) {
+                                      setModalState(() {
+                                        final val =
+                                            ((index % years.length) +
+                                                years.length) %
+                                            years.length;
+                                        tempYear = years[val];
+                                      });
+                                      updateDate();
+                                    },
+                                  ),
                                 ),
-                                controller: dayController,
-                                moduloCount: daysInCurrentMonth,
-                                currentSelectedValue: tempDay - 1,
-                                labelBuilder: (val) => "${val + 1}",
-                                onSelectedItemChanged: (index) {
-                                  setModalState(() {
-                                    final val =
-                                        ((index % daysInCurrentMonth) +
-                                            daysInCurrentMonth) %
-                                        daysInCurrentMonth;
-                                    tempDay = val + 1;
-                                  });
-                                  updateDate();
-                                },
-                              ),
+                                Expanded(
+                                  flex: 3,
+                                  child: buildInfiniteWheel(
+                                    key: const ValueKey('month_wheel'),
+                                    controller: monthController,
+                                    moduloCount: 12,
+                                    currentSelectedValue: tempMonth - 1,
+                                    labelBuilder: (val) => months[val],
+                                    onSelectedItemChanged: (index) {
+                                      setModalState(() {
+                                        final val = ((index % 12) + 12) % 12;
+                                        tempMonth = val + 1;
+                                      });
+                                      updateDate();
+                                    },
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: buildInfiniteWheel(
+                                    key: ValueKey(
+                                      'day_wheel_$daysInCurrentMonth',
+                                    ),
+                                    controller: dayController,
+                                    moduloCount: daysInCurrentMonth,
+                                    currentSelectedValue: tempDay - 1,
+                                    labelBuilder: (val) => "${val + 1}",
+                                    onSelectedItemChanged: (index) {
+                                      setModalState(() {
+                                        final val =
+                                            ((index % daysInCurrentMonth) +
+                                                daysInCurrentMonth) %
+                                            daysInCurrentMonth;
+                                        tempDay = val + 1;
+                                      });
+                                      updateDate();
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ),
-                ],
+                ),
               ),
             );
           },
@@ -376,25 +434,77 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  Future<void> pickInvoice() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-
-    if (result == null || result.files.single.path == null) {
-      return;
-    }
-
-    final String pickedPath = result.files.single.path!;
-
-    final AttachmentModel model = await attachmentService.processPickedFilePath(
-      pickedPath,
-      transactionId: widget.transaction?.id,
+  Future<List<AttachmentModel>> pickInvoice() async {
+  try {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+      allowMultiple: true, // 👈 Allows multi-file selection
     );
 
-    setState(() {
-      selectedInvoice = File(model.localPath ?? pickedPath);
-      attachments.add(model); // Appends to list instead of replacing
-    });
+    if (result == null || result.files.isEmpty) return [];
+
+    final List<AttachmentModel> newAttachments = [];
+
+    for (final file in result.files) {
+      if (file.path == null) continue;
+
+      final String pickedPath = file.path!;
+      final String fileName = file.name;
+      final String ext = pickedPath.split('.').last.toLowerCase();
+      final bool isPdf = ext == 'pdf';
+
+      AttachmentModel model;
+
+      if (isPdf) {
+        // 1. Copy the PDF to permanent sandboxed storage immediately
+        final String savedPdfPath = await attachmentService.copyToAppStorage(
+          pickedPath,
+          fileName,
+        );
+
+        // 2. Best-effort Page 1 render (returns file path if successful, null if protected)
+        final String? thumbPath = await attachmentService.generatePdfThumbnailBestEffort(
+          savedPdfPath,
+          fileName,
+        );
+
+        final now = DateTime.now();
+        model = AttachmentModel(
+          transactionId: widget.transaction?.id,
+          fileName: fileName,
+          localPath: savedPdfPath,
+          localThumbnailPath: thumbPath, // 👈 Real Page 1 thumbnail or null
+          fileType: 'application/pdf',
+          isSynced: false,
+          isDeleted: false,
+          createdAt: now,
+          updatedAt: now,
+        );
+      } else {
+        model = await attachmentService.processPickedFilePath(
+          pickedPath,
+          transactionId: widget.transaction?.id,
+        );
+      }
+
+      newAttachments.add(model);
+    }
+
+    if (newAttachments.isNotEmpty) {
+      setState(() {
+        selectedInvoice = File(newAttachments.last.localPath ?? newAttachments.last.fileName);
+        attachments.addAll(newAttachments);
+      });
+    }
+
+    return newAttachments;
+  } catch (e, stack) {
+    debugPrint("❌ Error picking invoice: $e\n$stack");
+    return [];
   }
+}
+
 
   void _openGallery({int initialIndex = 0}) {
     Navigator.push(
@@ -421,96 +531,74 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> saveTransaction() async {
-    if (amountController.text.trim().isEmpty) {
-      return;
-    }
+  if (amountController.text.trim().isEmpty) return;
+  final amount = double.tryParse(amountController.text.trim());
+  if (amount == null) return;
 
-    final amount = double.tryParse(amountController.text.trim());
+  final rate = double.tryParse(exchangeRateController.text.trim()) ?? 1.0;
 
-    if (amount == null) {
-      return;
-    }
+  final transaction = TransactionModel(
+    id: widget.transaction?.id,
+    userId: "local_user",
+    amount: amount,
+    currency: selectedCurrency,
+    exchangeRate: rate,
+    baseAmount: amount * rate,
+    transactionType: transactionType,
+    profileType: profileType,
+    category: selectedCategory,
+    subCategory: selectedSubcategory,
+    note: noteController.text,
+    merchant: merchantController.text,
+    paymentMethod: paymentMethod,
+    paymentName: paymentNameController.text,
+    date: selectedDate,
+    source: "manual",
+    createdAt: widget.transaction?.createdAt ?? DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 
-    final transaction = TransactionModel(
-      id: widget.transaction?.id,
-      userId: "local_user",
-      amount: amount,
-      transactionType: transactionType,
-      profileType: profileType,
-      category: selectedCategory,
-      subCategory: selectedSubcategory,
-      note: noteController.text,
-      merchant: merchantController.text,
-      paymentMethod: paymentMethod,
-      paymentName: paymentNameController.text,
-      date: selectedDate,
-      source: "manual",
-      createdAt: widget.transaction?.createdAt ?? DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+  // 'attachments' already contains all existing + newly picked files
+  final List<AttachmentModel> attachmentsToSave = List.from(attachments);
 
-    // 1. Prepare attachments to save
-    List<AttachmentModel> attachmentsToSave = List.from(attachments);
-
-    // If the user picked a new invoice file from the file picker
-    if (selectedInvoice != null) {
-      final now = DateTime.now();
-      final fileName = selectedInvoice!.path.split(Platform.pathSeparator).last;
-
-      final newAttachment = AttachmentModel(
-        transactionId: widget.transaction?.id,
-        fileName: fileName,
-        localPath: selectedInvoice!.path,
-        localThumbnailPath: selectedInvoice!.path,
-        fileType: 'image/jpeg',
-        isSynced: false,
-        isDeleted: false,
-        createdAt: now,
-        updatedAt: now,
+  if (widget.transaction == null) {
+    // New transaction
+    if (attachmentsToSave.isNotEmpty) {
+      await DatabaseHelper.instance.insertTransactionWithAttachments(
+        transaction,
+        attachmentsToSave,
       );
-
-      attachmentsToSave.add(newAttachment);
-    }
-
-    // 2. Persist to Database with Sync Queue
-    if (widget.transaction == null) {
-      if (attachmentsToSave.isNotEmpty) {
-        await DatabaseHelper.instance.insertTransactionWithAttachments(
-          transaction,
-          attachmentsToSave,
-        );
-      } else {
-        await DatabaseHelper.instance.insertTransaction(transaction);
-      }
     } else {
-      await DatabaseHelper.instance.updateTransaction(transaction);
+      await DatabaseHelper.instance.insertTransaction(transaction);
+    }
+  } else {
+    // Updating existing transaction
+    await DatabaseHelper.instance.updateTransaction(transaction);
 
-      // If updating an existing transaction with a new attached invoice
-      if (selectedInvoice != null && attachmentsToSave.isNotEmpty) {
-        final lastAttachment = attachmentsToSave.last.copyWith(
+    // Save newly added attachments (those without a database primary key id)
+    for (final att in attachmentsToSave) {
+      if (att.id == null) {
+        final newAttachment = att.copyWith(
           transactionId: widget.transaction!.id,
         );
-        await DatabaseHelper.instance.insertAttachment(lastAttachment);
+        await DatabaseHelper.instance.insertAttachment(newAttachment);
       }
     }
-
-    // 3. Trigger immediate sync queue processing (Cloudflare R2 & backend)
-    appLog(
-      '🟢 [UI] Transaction & attachments saved. Triggering SyncService...',
-    );
-    SyncService().processSyncQueue();
-
-    if (mounted) {
-      Navigator.pop(context);
-    }
   }
+
+  appLog(
+    '🟢 [UI] Transaction & attachments saved. Triggering SyncService...',
+  );
+  SyncService().processSyncQueue();
+
+  if (mounted) Navigator.pop(context, true);
+}
 
   Future<bool> _onWillPop() async {
     final initial = widget.transaction ?? widget.draftTransaction;
 
     bool hasInput;
     if (initial != null) {
-      // When editing: check if any value actually changed
       final amountChanged =
           amountController.text.trim() != initial.amount.toString();
       final noteChanged = noteController.text.trim() != (initial.note ?? "");
@@ -524,6 +612,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       final typeChanged = transactionType != initial.transactionType;
       final profileChanged = profileType != initial.profileType;
       final paymentChanged = paymentMethod != (initial.paymentMethod ?? "cash");
+      final currencyChanged = selectedCurrency != initial.currency;
       final dateChanged = selectedDate != initial.date;
       final attachmentChanged = selectedInvoice != null;
 
@@ -537,10 +626,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           typeChanged ||
           profileChanged ||
           paymentChanged ||
+          currencyChanged ||
           dateChanged ||
           attachmentChanged;
     } else {
-      // When adding new: check if user typed anything
       hasInput =
           amountController.text.trim().isNotEmpty ||
           merchantController.text.trim().isNotEmpty ||
@@ -553,32 +642,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     if (!hasInput) return true;
 
     final colors = context.colors;
-    final shouldDiscard = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: colors.card,
-        title: Text(
-          "Discard Changes?",
-          style: TextStyle(color: colors.textPrimary),
-        ),
-        content: Text(
+    final shouldDiscard = await AppAlertDialog.show(
+      context,
+      title: "Discard Changes?",
+      message:
           "You have unsaved changes. Are you sure you want to exit without saving?",
-          style: TextStyle(color: colors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              "Keep Editing",
-              style: TextStyle(color: colors.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text("Discard", style: TextStyle(color: colors.expense)),
-          ),
-        ],
-      ),
+      confirmText: "Discard",
+      cancelText: "Keep Editing",
+      isDestructive: true,
     );
 
     return shouldDiscard ?? false;
@@ -587,33 +658,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Future<void> _confirmDelete() async {
     if (widget.transaction?.id == null) return;
 
-    final colors = context.colors;
-    final shouldDelete = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: colors.card,
-        title: Text(
-          "Delete Transaction",
-          style: TextStyle(color: colors.textPrimary),
-        ),
-        content: Text(
-          "Are you sure you want to delete this transaction?",
-          style: TextStyle(color: colors.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(
-              "Cancel",
-              style: TextStyle(color: colors.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text("Delete", style: TextStyle(color: colors.expense)),
-          ),
-        ],
-      ),
+    final shouldDelete = await AppAlertDialog.show(
+      context,
+      title: "Delete Transaction",
+      message: "Are you sure you want to delete this transaction?",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      isDestructive: true,
     );
 
     if (shouldDelete == true && mounted) {
@@ -621,6 +672,29 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       SyncService().processSyncQueue();
       if (mounted) Navigator.pop(context, true);
     }
+  }
+
+  // --- Scaffolding Helpers ---
+
+  Widget _buildCardContainer(List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: context.colors.card,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: context.colors.cardLight.withValues(alpha: 0.6),
+      indent: 16,
+      endIndent: 16,
+    );
   }
 
   @override
@@ -640,314 +714,433 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         body: SafeArea(
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.zero,
+            padding: const EdgeInsets.only(top: 8, bottom: 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top Custom Action Row
+                // 1. Top Buttons (scroll out of view naturally)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      // Back Button
                       MouseRegion(
                         cursor: SystemMouseCursors.click,
                         onEnter: (_) => setState(() => _isBackHovered = true),
                         onExit: (_) => setState(() => _isBackHovered = false),
-                        child: IconButton(
-                          hoverColor: Colors.transparent,
-                          splashColor: Colors.transparent,
-                          highlightColor: Colors.transparent,
-                          icon: SvgPicture.asset(
-                            'assets/icons/components/trash.svg',
-                            width: 20,
-                            height: 20,
-                            colorFilter: ColorFilter.mode(
-                              _isBackHovered
-                                  ? Color.alphaBlend(
-                                      Colors.black.withValues(alpha: 0.35),
-                                      colors.textPrimary,
-                                    )
-                                  : colors.textPrimary,
-                              BlendMode.srcIn,
-                            ),
-                          ),
-                          onPressed: () async {
+                        child: GestureDetector(
+                          onTap: () async {
                             final shouldPop = await _onWillPop();
                             if (shouldPop && context.mounted) {
                               Navigator.pop(context);
                             }
                           },
-                        ),
-                      ),
-                      if (widget.transaction != null)
-                        MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          onEnter: (_) => setState(() => _isDeleteHovered = true),
-                          onExit: (_) => setState(() => _isDeleteHovered = false),
-                          child: IconButton(
-                            hoverColor: Colors.transparent,
-                            splashColor: Colors.transparent,
-                            highlightColor: Colors.transparent,
-                            icon: SvgPicture.asset(
-                              'assets/icons/components/trash.svg',
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: _isBackHovered
+                                  ? colors.cardLight
+                                  : colors.cardLight.withValues(alpha: 0),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: SvgPicture.asset(
+                              'assets/icons/components/back.svg',
                               width: 20,
                               height: 20,
                               colorFilter: ColorFilter.mode(
-                                _isDeleteHovered
-                                    ? Color.alphaBlend(
-                                        Colors.black.withValues(alpha: 0.35),
-                                        colors.textPrimary,
-                                      )
-                                    : colors.textPrimary,
-                              BlendMode.srcIn,
+                                colors.textPrimary,
+                                BlendMode.srcIn,
+                              ),
                             ),
                           ),
-                          onPressed: _confirmDelete,
                         ),
-                      )
+                      ),
+
+                      // Trash Button
+                      if (widget.transaction != null)
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          onEnter: (_) =>
+                              setState(() => _isDeleteHovered = true),
+                          onExit: (_) =>
+                              setState(() => _isDeleteHovered = false),
+                          child: GestureDetector(
+                            onTap: _confirmDelete,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: _isDeleteHovered
+                                    ? colors.redLight
+                                    : colors.redLight.withValues(alpha: 0),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: SvgPicture.asset(
+                                'assets/icons/components/trash.svg',
+                                width: 20,
+                                height: 20,
+                                colorFilter: ColorFilter.mode(
+                                  colors.red,
+                                  BlendMode.srcIn,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
                       else
-                        const SizedBox(width: 48),
+                        const SizedBox(width: 36, height: 36),
                     ],
                   ),
                 ),
-                TextField(
-                  controller: amountController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,2}'),
-                    ),
-                  ],
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 46,
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    prefixText: "₹ ",
-                    prefixStyle: TextStyle(color: colors.textPrimary),
-                    hintText: "0",
-                    border: InputBorder.none,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Center(
-                  child: SizedBox(
-                    width: 380, // 👈 Set your exact fixed width here
-                    child: Row(
-                      children: [
-                        typeButton("expense"),
-                        typeButton("income"),
-                        typeButton("transfer"),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 25),TransactionOptionTile(
-                  svgAssetPath: _getCategoryIconPath(selectedCategory),
-                  title: "Category",
-                  value: selectedCategory,
-                  onTap: () {
-                    if (categories.isEmpty) return;
-                    showPicker(
-                      categories.map((c) => c.name).toList(),
-                      (value) {
-                        final matched = categories.firstWhere(
-                          (c) => c.name == value,
-                          orElse: () => categories.first,
-                        );
-                        setState(() {
-                          selectedCategory = value;
-                          selectedSubcategory = matched.subcategories.isNotEmpty
-                              ? matched.subcategories.first
-                              : "Other";
-                        });
-                      },
-                      currentSelected: selectedCategory,
-                      title: "Category",
-                    );
-                  },
-                ),
-                TransactionOptionTile(
-                  svgAssetPath: _getSubcategoryIconPath(selectedSubcategory),
-                  title: "Subcategory",
-                  value: selectedSubcategory,
-                  onTap: () {
-                    final currentCategory = categories.firstWhere(
-                      (c) => c.name == selectedCategory,
-                      orElse: () => categories.isNotEmpty
-                          ? categories.first
-                          : CategoryModel(name: '', subcategories: ['Other']),
-                    );
 
-                    showPicker(
-                      currentCategory.subcategories,
-                      (value) {
-                        setState(() {
-                          selectedSubcategory = value;
-                        });
-                      },
-                      currentSelected: selectedSubcategory,
-                      title: "Subcategory",
-                    );
-                  },
-                ),
-                TransactionOptionTile(
-                  svgAssetPath: 'assets/icons/components/payment.svg',
-                  title: "Payment",
-                  value: paymentMethod,
-                  onTap: () {
-                    showPicker(
-                      ["Cash", "Credit Card", "Debit Card", "UPI", "Bank"],
-                      (value) {
-                        setState(() {
-                          paymentMethod = value;
-                        });
-                      },
-                      currentSelected: paymentMethod,
-                      title: "Payment",
-                    );
-                  },
-                ),
-                TransactionOptionTile(
-                  svgAssetPath: 'assets/icons/components/profile.svg',
-                  title: "Profile",
-                  value: profileType,
-                  onTap: () {
-                    showPicker(
-                      ["Personal", "Business"],
-                      (value) {
-                        setState(() {
-                          profileType = value;
-                        });
-                      },
-                      currentSelected: profileType,
-                      title: "Profile",
-                    );
-                  },
-                ),
-                TransactionOptionTile(
-                  svgAssetPath: 'assets/icons/components/calendar.svg',
-                  title: "Date",
-                  value:
-                      "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
-                  onTap: selectDate,
-                ),
-                TransactionOptionTile(
-                  svgAssetPath: 'assets/icons/components/invoice.svg',
-                  title: "Invoice",
-                  trailingWidget: attachments.isNotEmpty
-                      ? Stack(
-                          clipBehavior: Clip.none,
+                // 2. Amount Row (shifted upward via negative offset)
+                Transform.translate(
+                  offset: const Offset(
+                    0,
+                    -26,
+                  ), // 👈 Adjust if you want it slightly higher/lower
+                  child: Column(
+                    children: [
+                      Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
                           children: [
-                            AttachmentThumbnailView(
-                              attachment: attachments.first,
-                              size: 34,
-                              borderRadius: 6,
-                            ),
-                            if (attachments.length > 1)
-                              Positioned(
-                                right: -4,
-                                bottom: -4,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
+                            // Clickable currency symbol
+                            GestureDetector(
+                              onTap: () {
+                                showPicker(
+                                  currencySymbols.keys.toList(),
+                                  (value) => _onCurrencyChanged(value),
+                                  currentSelected: selectedCurrency,
+                                  title: "Currency",
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 6.0),
+                                child: Text(
+                                  currencySymbols[selectedCurrency] ??
+                                      selectedCurrency,
+                                  style: TextStyle(
+                                    fontSize: 20,
                                     color: colors.purple,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    "+${attachments.length - 1}",
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
+                            ),
+
+                            // Input field
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                minWidth: 30,
+                                maxWidth: 220,
+                              ),
+                              child: IntrinsicWidth(
+                                child: TextField(
+                                  controller: amountController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d*\.?\d{0,2}'),
+                                    ),
+                                  ],
+                                  style: TextStyle(
+                                    fontSize: 32,
+                                    color: colors.textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    hintText: "0",
+                                    border: InputBorder.none,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
-                        )
-                      : Text(
-                          "Add",
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
                         ),
-                  onTap: () {
-                    if (attachments.isEmpty) {
-                      pickInvoice();
-                    } else {
-                      _openGallery();
-                    }
-                  },
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      _buildTypeToggle(),
+                    ],
+                  ),
                 ),
-                customInput(
-                  controller: merchantController,
-                  hint: "Merchant",
-                  svgAssetPath: 'assets/icons/components/store.svg',
-                ),
-                customInput(
-                  controller: paymentNameController,
-                  hint: "Payment name",
-                  svgAssetPath: 'assets/icons/components/wallet.svg',
-                ),
-                customInput(
-                  controller: noteController,
-                  hint: "Note",
-                  svgAssetPath: 'assets/icons/components/note.svg',
-                ),
-                const SizedBox(height: 25),
-                Center(
-                  child: SizedBox(
-                    width: 100,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      onEnter: (_) => setState(() => _isSaveHovered = true),
-                      onExit: (_) => setState(() => _isSaveHovered = false),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeInOut,
-                        decoration: BoxDecoration(
-                          color: _isSaveHovered
-                              ? Color.alphaBlend(
-                                  Colors.black.withValues(alpha: 0.25),
-                                  colors.purple,
-                                )
-                              : colors.purple,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
-                            backgroundColor: Colors.transparent,
-                            surfaceTintColor: Colors.transparent,
-                            minimumSize: const Size(
-                              0,
-                              kMinInteractiveDimension,
+
+                const SizedBox(height: 8),
+
+                // Card Container with Horizontal Margin & Structured Dividers
+                _buildCardContainer([
+                  TransactionOptionTile(
+                    svgAssetPath: _getCategoryIconPath(selectedCategory),
+                    title: "Category",
+                    value: selectedCategory,
+                    onTap: () {
+                      if (categories.isEmpty) return;
+                      showPicker(
+                        categories.map((c) => c.name).toList(),
+                        (value) {
+                          final matched = categories.firstWhere(
+                            (c) => c.name == value,
+                            orElse: () => categories.first,
+                          );
+                          setState(() {
+                            selectedCategory = value;
+                            selectedSubcategory =
+                                matched.subcategories.isNotEmpty
+                                ? matched.subcategories.first
+                                : "Other";
+                          });
+                        },
+                        currentSelected: selectedCategory,
+                        title: "Category",
+                      );
+                    },
+                  ),
+                  _buildDivider(),
+                  TransactionOptionTile(
+                    svgAssetPath: _getSubcategoryIconPath(selectedSubcategory),
+                    title: "Subcategory",
+                    value: selectedSubcategory,
+                    onTap: () {
+                      final currentCategory = categories.firstWhere(
+                        (c) => c.name == selectedCategory,
+                        orElse: () => categories.isNotEmpty
+                            ? categories.first
+                            : CategoryModel(name: '', subcategories: ['Other']),
+                      );
+
+                      showPicker(
+                        currentCategory.subcategories,
+                        (value) => setState(() => selectedSubcategory = value),
+                        currentSelected: selectedSubcategory,
+                        title: "Subcategory",
+                      );
+                    },
+                  ),
+                  _buildDivider(),
+                  TransactionOptionTile(
+                    svgAssetPath: 'assets/icons/components/payment.svg',
+                    title: "Payment",
+                    value: paymentMethod,
+                    onTap: () {
+                      showPicker(
+                        ["Cash", "Credit Card", "Debit Card", "UPI", "Bank"],
+                        (value) => setState(() => paymentMethod = value),
+                        currentSelected: paymentMethod,
+                        title: "Payment",
+                      );
+                    },
+                  ),
+                  _buildDivider(),
+                  TransactionOptionTile(
+                    svgAssetPath: 'assets/icons/components/profile.svg',
+                    title: "Profile",
+                    value: profileType,
+                    onTap: () {
+                      showPicker(
+                        ["Personal", "Business"],
+                        (value) => setState(() => profileType = value),
+                        currentSelected: profileType,
+                        title: "Profile",
+                      );
+                    },
+                  ),
+                  _buildDivider(),
+                  TransactionOptionTile(
+                    svgAssetPath: 'assets/icons/components/calendar.svg',
+                    title: "Date",
+                    value:
+                        "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
+                    onTap: selectDate,
+                  ),
+                  if (selectedCurrency != "USD") ...[
+                    _buildDivider(),
+                    TransactionOptionTile(
+                      svgAssetPath: 'assets/icons/components/wallet.svg',
+                      title: "Exchange Rate (1 $selectedCurrency = \$ USD)",
+                      value: exchangeRateController.text,
+                      onTap: () async {
+                        final inputController = TextEditingController(
+                          text: exchangeRateController.text,
+                        );
+                        await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            backgroundColor: colors.card,
+                            title: Text(
+                              "Custom Exchange Rate",
+                              style: TextStyle(color: colors.textPrimary),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                            content: TextField(
+                              controller: inputController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: TextStyle(color: colors.textPrimary),
+                              decoration: InputDecoration(
+                                labelText: "1 $selectedCurrency in USD",
+                                labelStyle: TextStyle(
+                                  color: colors.textSecondary,
+                                ),
+                              ),
                             ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: Text(
+                                  "Cancel",
+                                  style: TextStyle(color: colors.textSecondary),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  if (inputController.text.trim().isNotEmpty) {
+                                    setState(() {
+                                      exchangeRateController.text =
+                                          inputController.text.trim();
+                                    });
+                                  }
+                                  Navigator.pop(ctx);
+                                },
+                                child: Text(
+                                  "Apply",
+                                  style: TextStyle(color: colors.purple),
+                                ),
+                              ),
+                            ],
                           ),
-                          onPressed: saveTransaction,
-                          child: const Text(
-                            "Save",
+                        );
+                      },
+                    ),
+                  ],
+                  _buildDivider(),
+                  TransactionOptionTile(
+                    svgAssetPath: 'assets/icons/components/invoice.svg',
+                    title: "Invoice",
+                    trailingWidget: attachments.isNotEmpty
+                        ? Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              AttachmentThumbnailView(
+                                attachment: attachments.first,
+                                size: 34,
+                                borderRadius: 6,
+                              ),
+                              if (attachments.length > 1)
+                                Positioned(
+                                  right: -4,
+                                  bottom: -4,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: colors.purple,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      "+${attachments.length - 1}",
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          )
+                        : Text(
+                            "Add",
                             style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
+                              color: colors.textPrimary,
                               fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                    onTap: () {
+                      if (attachments.isEmpty) {
+                        pickInvoice();
+                      } else {
+                        _openGallery();
+                      }
+                    },
+                  ),
+                  _buildDivider(),
+                  customInput(
+                    controller: merchantController,
+                    hint: "Merchant",
+                    svgAssetPath: 'assets/icons/components/store.svg',
+                  ),
+                  _buildDivider(),
+                  customInput(
+                    controller: paymentNameController,
+                    hint: "Payment name",
+                    svgAssetPath: 'assets/icons/components/wallet.svg',
+                  ),
+                  _buildDivider(),
+                  customInput(
+                    controller: noteController,
+                    hint: "Note",
+                    svgAssetPath: 'assets/icons/components/note.svg',
+                  ),
+                ]),
+
+                Padding(
+                  padding: const EdgeInsets.only(
+                    top: 14,
+                    bottom: 14,
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: 100,
+                      height: 38, // 👈 Explicitly locks height to match the 38px toggle system
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => setState(() => _isSaveHovered = true),
+                        onExit: (_) => setState(() => _isSaveHovered = false),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
+                          decoration: BoxDecoration(
+                            color: _isSaveHovered
+                                ? colors.purpleLight
+                                : colors.purple,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              elevation: 0,
+                              shadowColor: Colors.transparent,
+                              backgroundColor: Colors.transparent,
+                              surfaceTintColor: Colors.transparent,
+                              overlayColor: Colors.transparent,
+                              minimumSize: Size.zero, // 👈 Removes the default 48px constraint
+                              padding: EdgeInsets.zero, // 👈 Ensures clean text centering within 38px
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            onPressed: saveTransaction,
+                            child: const Text(
+                              "Save",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600, // 👈 Matches toggle typography weight
+                                fontSize: 13, // 👈 Matches toggle 13px font size
+                              ),
                             ),
                           ),
                         ),
@@ -955,7 +1148,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 30),
+              
+              
               ],
             ),
           ),
@@ -964,81 +1158,101 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  Widget typeButton(String type) {
-    final selected = transactionType == type;
+  Widget _buildTypeToggle() {
     final colors = context.colors;
-    final isHovered = _hoveredTypeButton == type;
+    const types = ["expense", "income", "transfer"];
+    final selectedIndex = types.indexOf(transactionType).clamp(0, 2);
 
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hoveredTypeButton = type),
-          onExit: (_) => setState(() => _hoveredTypeButton = null),
-          child: selected
-              ? AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeInOut,
-                  decoration: BoxDecoration(
-                    color: isHovered
-                        ? Color.alphaBlend(
-                            Colors.black.withValues(alpha: 0.25),
-                            colors.purple,
-                          )
-                        : colors.purple,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      shadowColor: Colors.transparent,
-                      backgroundColor: Colors.transparent,
-                      surfaceTintColor: Colors.transparent,
-                      minimumSize: const Size(0, kMinInteractiveDimension),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+    return Center(
+      child: SizedBox(
+        width: 380,
+        height: 38, // 👈 Matches the rendered 38px Save button
+        child: Container(
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: colors.cardLight.withValues(alpha: 0.8),
+              width: 1.0,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final tabWidth = constraints.maxWidth / types.length;
+
+                return Stack(
+                  children: [
+                    // 1. Sliding Active Purple Pill
+                    // 1. Sliding Active Purple Pill
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOutCubic,
+                      left: selectedIndex * tabWidth,
+                      top: 0,
+                      bottom: 0,
+                      width: tabWidth,
+                      child: AnimatedContainer(
+                        // 👈 Use AnimatedContainer so the color transition matches the 200ms ease
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          color: _hoveredToggleTab == transactionType
+                              ? colors.purpleLight
+                              : colors.purple,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
                       ),
                     ),
-                    onPressed: () {
-                      setState(() {
-                        transactionType = type;
-                      });
-                    },
-                    child: Text(
-                      "${type[0].toUpperCase()}${type.substring(1)}",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
+
+                    // 2. Interactive Buttons & Hover Targets
+                    Row(
+                      children: types.map((type) {
+                        final isSelected = transactionType == type;
+                        final isHovered = _hoveredToggleTab == type;
+
+                        return Expanded(
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            onEnter: (_) =>
+                                setState(() => _hoveredToggleTab = type),
+                            onExit: (_) =>
+                                setState(() => _hoveredToggleTab = null),
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => transactionType = type);
+                              },
+                              child: Container(
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: (!isSelected && isHovered)
+                                      ? colors.cardLight.withValues(alpha: 0.35)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  "${type[0].toUpperCase()}${type.substring(1)}",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : colors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                  ),
-                )
-              : OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, kMinInteractiveDimension),
-                    side: BorderSide(
-                      color: colors.textSecondary.withOpacity(0.3),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      transactionType = type;
-                    });
-                  },
-                  child: Text(
-                    "${type[0].toUpperCase()}${type.substring(1)}",
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -1053,38 +1267,38 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(color: colors.card),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: TextField(
         controller: controller,
         style: TextStyle(
           color: colors.textPrimary,
-          fontSize: 16,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
         decoration: InputDecoration(
-          icon: Container(
-            height: 36,
-            width: 36,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: colors.iconCircle,
-              shape: BoxShape.circle,
-            ),
-            child: SvgPicture.asset(
-              svgAssetPath,
-              width: 20,
-              height: 20,
-              fit: BoxFit.contain,
-              colorFilter: ColorFilter.mode(
-                colors.textPrimary,
-                BlendMode.srcIn,
+          icon: SizedBox(
+            width: 24,
+            height: 24,
+            child: Center(
+              child: SvgPicture.asset(
+                svgAssetPath,
+                width: 20,
+                height: 20,
+                fit: BoxFit.contain,
+                colorFilter: ColorFilter.mode(
+                  colors.textPrimary,
+                  BlendMode.srcIn,
+                ),
               ),
             ),
           ),
           hintText: hint,
           hintStyle: TextStyle(
             color: colors.textHint,
-            fontSize: 16,
+            fontSize: 14,
             fontWeight: FontWeight.w400,
           ),
           border: InputBorder.none,
@@ -1103,99 +1317,106 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: colors.card,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (context) {
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Drag Handle
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: colors.textSecondary.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                if (title != null) ...[
-                  const SizedBox(height: 14),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-
-                // Options List matching Sort/Filter sheet style
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.45,
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      final isSelected =
-                          currentSelected != null &&
-                          (currentSelected.toLowerCase() == item.toLowerCase());
-
-                      return InkWell(
-                        onTap: () {
-                          selected(item);
-                          Navigator.pop(context);
-                        },
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.textSecondary.withOpacity(0.4),
                         borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                            horizontal: 4,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                item.replaceAll("_", " "),
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: isSelected
-                                      ? colors.purple
-                                      : colors.textPrimary,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.w500,
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check,
-                                  color: colors.purple,
-                                  size: 18,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-              ],
+                  if (title != null) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.45,
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      physics: const ClampingScrollPhysics(),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final isSelected =
+                            currentSelected != null &&
+                            (currentSelected.toLowerCase() ==
+                                item.toLowerCase());
+
+                        return InkWell(
+                          onTap: () {
+                            selected(item);
+                            Navigator.pop(context);
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 4,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  item.replaceAll("_", " "),
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: isSelected
+                                        ? colors.purple
+                                        : colors.textPrimary,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Icon(
+                                    Icons.check,
+                                    color: colors.purple,
+                                    size: 18,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
         );

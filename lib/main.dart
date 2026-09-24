@@ -29,6 +29,9 @@ void main() async {
   // 3. Initialize SyncService safely
   final syncService = SyncService();
 
+  // 👈 Clear stuck items (run once to unblock queue)
+  await syncService.clearQueue();
+
   if (!kIsWeb) {
     syncService.initializeAutoSync();
   }
@@ -42,7 +45,6 @@ void main() async {
 
   runApp(const MyApp());
 }
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 

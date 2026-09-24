@@ -30,9 +30,22 @@ class _InsightsScreenState extends State<InsightsScreen> {
   // Active breakdown tab for the pie chart: "expense" or "income"
   String activeBreakdownTab = "expense";
 
+  // State variable
+  String activeVelocityTab = "expense"; // "expense" or "income"
+
   static const List<String> months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   static const int baseIndex = 12000;
@@ -67,8 +80,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
       viewportFraction: 0.22,
     );
     _monthPageController = PageController(
-      initialPage: baseIndex + (activeDate.month - 1),
-      viewportFraction: 0.32,
+      initialPage: (activeDate.year * 12) + (activeDate.month - 1),
+      viewportFraction: 0.22,
     );
     _yearPageController = PageController(
       initialPage: baseIndex + (activeDate.year - 2000),
@@ -221,28 +234,45 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return map;
   }
 
-  // Generate spending points for AppLineChart based on current view
+  // Updated trend data getter
   Map<String, double> get lineChartTrendData {
     final Map<String, double> trend = {};
+    final targetType = activeVelocityTab; // Filter based on selected tab
 
     if (selectedRange == "This Month") {
-      final daysInMonth = DateUtils.getDaysInMonth(activeDate.year, activeDate.month);
+      final daysInMonth = DateUtils.getDaysInMonth(
+        activeDate.year,
+        activeDate.month,
+      );
       for (int i = 1; i <= daysInMonth; i++) {
         trend["$i"] = 0.0;
       }
       for (final t in filteredTransactions) {
-        if (t.transactionType.trim().toLowerCase() == "expense") {
+        if (t.transactionType.trim().toLowerCase() == targetType) {
           final dayKey = "${t.date.day}";
           trend[dayKey] = (trend[dayKey] ?? 0.0) + t.amount;
         }
       }
     } else if (selectedRange == "This Year") {
-      const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const shortMonths = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
       for (final m in shortMonths) {
         trend[m] = 0.0;
       }
       for (final t in filteredTransactions) {
-        if (t.transactionType.trim().toLowerCase() == "expense") {
+        if (t.transactionType.trim().toLowerCase() == targetType) {
           final monthKey = shortMonths[t.date.month - 1];
           trend[monthKey] = (trend[monthKey] ?? 0.0) + t.amount;
         }
@@ -253,7 +283,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         trend[d] = 0.0;
       }
       for (final t in filteredTransactions) {
-        if (t.transactionType.trim().toLowerCase() == "expense") {
+        if (t.transactionType.trim().toLowerCase() == targetType) {
           final dayIndex = t.date.weekday - 1;
           final dayKey = weekDays[dayIndex];
           trend[dayKey] = (trend[dayKey] ?? 0.0) + t.amount;
@@ -262,6 +292,238 @@ class _InsightsScreenState extends State<InsightsScreen> {
     }
 
     return trend;
+  }
+
+  // Computes same-day-to-date run rate vs prior period
+  Map<String, dynamic> getVelocityComparison(String targetType) {
+    double currentAmount = 0.0;
+    double previousAmount = 0.0;
+
+    DateTime curStart;
+    DateTime curEnd;
+    DateTime prevStart;
+    DateTime prevEnd;
+    String periodLabel;
+
+    final now = DateTime.now();
+
+    switch (selectedRange) {
+      case "Today":
+        // Today (activeDate) vs Yesterday
+        curStart = DateTime(activeDate.year, activeDate.month, activeDate.day);
+        curEnd = DateTime(
+          activeDate.year,
+          activeDate.month,
+          activeDate.day,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        prevStart = curStart.subtract(const Duration(days: 1));
+        prevEnd = DateTime(
+          prevStart.year,
+          prevStart.month,
+          prevStart.day,
+          23,
+          59,
+          59,
+          999,
+        );
+        periodLabel = "yesterday";
+        break;
+
+      case "This Week":
+        // Current selected week vs previous 7 days
+        final today = DateTime(now.year, now.month, now.day);
+        curStart = today.subtract(Duration(days: today.weekday - 1));
+        curEnd = DateTime(
+          curStart.year,
+          curStart.month,
+          curStart.day + 6,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        prevStart = curStart.subtract(const Duration(days: 7));
+        prevEnd = curStart.subtract(const Duration(milliseconds: 1));
+        periodLabel = "last week";
+        break;
+
+      case "This Month":
+        // Full active month vs full previous month (regardless of current day)
+        final daysInCurMonth = DateUtils.getDaysInMonth(
+          activeDate.year,
+          activeDate.month,
+        );
+        curStart = DateTime(activeDate.year, activeDate.month, 1);
+        curEnd = DateTime(
+          activeDate.year,
+          activeDate.month,
+          daysInCurMonth,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        final prevYear = activeDate.month == 1
+            ? activeDate.year - 1
+            : activeDate.year;
+        final prevMonth = activeDate.month == 1 ? 12 : activeDate.month - 1;
+        final daysInPrevMonth = DateUtils.getDaysInMonth(prevYear, prevMonth);
+
+        prevStart = DateTime(prevYear, prevMonth, 1);
+        prevEnd = DateTime(
+          prevYear,
+          prevMonth,
+          daysInPrevMonth,
+          23,
+          59,
+          59,
+          999,
+        );
+        periodLabel = "last month";
+        break;
+
+      case "This Year":
+        // Full active year vs full previous year
+        curStart = DateTime(activeDate.year, 1, 1);
+        curEnd = DateTime(activeDate.year, 12, 31, 23, 59, 59, 999);
+
+        prevStart = DateTime(activeDate.year - 1, 1, 1);
+        prevEnd = DateTime(activeDate.year - 1, 12, 31, 23, 59, 59, 999);
+        periodLabel = "last year";
+        break;
+
+      case "Custom Date":
+        if (customFromDate == null || customToDate == null) {
+          return {'hasComparison': false};
+        }
+        curStart = DateTime(
+          customFromDate!.year,
+          customFromDate!.month,
+          customFromDate!.day,
+        );
+        curEnd = DateTime(
+          customToDate!.year,
+          customToDate!.month,
+          customToDate!.day,
+          23,
+          59,
+          59,
+          999,
+        );
+
+        // Duration in days of the selected custom window
+        final spanDays = curEnd.difference(curStart).inDays + 1;
+
+        // Shift back by the exact same window length
+        prevStart = curStart.subtract(Duration(days: spanDays));
+        prevEnd = curStart.subtract(const Duration(milliseconds: 1));
+        periodLabel = "prev $spanDays days";
+        break;
+
+      case "All Time":
+      default:
+        return {'hasComparison': false};
+    }
+
+    // Aggregate current vs previous periods
+    for (final t in allTransactions) {
+      if (t.transactionType.trim().toLowerCase() != targetType) continue;
+
+      if (!t.date.isBefore(curStart) && !t.date.isAfter(curEnd)) {
+        currentAmount += t.amount;
+      } else if (!t.date.isBefore(prevStart) && !t.date.isAfter(prevEnd)) {
+        previousAmount += t.amount;
+      }
+    }
+
+    // Neither period has data
+    if (currentAmount == 0.0 && previousAmount == 0.0) {
+      return {'hasComparison': false};
+    }
+
+    // Prior period had 0, current period has amount
+    if (previousAmount <= 0.0) {
+      return {
+        'hasComparison': true,
+        'percentage': 100.0,
+        'isIncrease': true,
+        'isNew': true,
+        'periodLabel': periodLabel,
+      };
+    }
+
+    final double diff = currentAmount - previousAmount;
+    final double percentage = (diff / previousAmount) * 100;
+
+    return {
+      'hasComparison': true,
+      'percentage': percentage.abs(),
+      'isIncrease': diff > 0,
+      'isNew': false,
+      'periodLabel': periodLabel,
+    };
+  }
+
+  Widget _buildVelocityBadge({
+    required Map<String, dynamic> comp,
+    required dynamic colors,
+    required bool isIncome,
+  }) {
+    if (comp['hasComparison'] != true) return const SizedBox.shrink();
+
+    final bool isIncrease = comp['isIncrease'] == true;
+    final bool isNew = comp['isNew'] == true;
+    final double percentage = comp['percentage'] as double;
+    final String period = comp['periodLabel'] as String;
+
+    final bool isPositive = isIncome ? isIncrease : !isIncrease;
+    final badgeColor = isPositive ? colors.income : colors.expense;
+    final badgeBg = isPositive
+        ? colors.incomeBackground
+        : colors.expenseBackground;
+
+    final String text = isNew
+        ? "New vs $period"
+        : "${percentage.toStringAsFixed(0)}% vs $period";
+
+    return Container(
+      margin: const EdgeInsets.only(
+        top: 4,
+      ), // 👈 Placed cleanly below the title
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: badgeBg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isIncrease
+                ? Icons.arrow_upward_rounded
+                : Icons.arrow_downward_rounded,
+            size: 10,
+            color: badgeColor,
+          ),
+          const SizedBox(width: 2),
+          Text(
+            text,
+            style: TextStyle(
+              color: badgeColor,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // Get Top 3-5 largest expenses for the period
@@ -500,10 +762,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: PageView.builder(
-        key: const ValueKey("insights_days_slider"),
+        key: const ValueKey("days_slider"),
         controller: _dayPageController,
         physics: const BouncingScrollPhysics(),
         onPageChanged: (page) {
@@ -520,13 +783,27 @@ class _InsightsScreenState extends State<InsightsScreen> {
               date.month == activeDate.month &&
               date.day == activeDate.day;
 
-          return Center(
-            child: Text(
-              "${date.day} ${months[date.month - 1].substring(0, 3)}",
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _dayPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                "${date.day} ${months[date.month - 1].substring(0, 3)}",
+                style: TextStyle(
+                  fontSize: isSelected ? 16 : 10,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: colors.textPrimary.withOpacity(
+                    isSelected ? 1.0 : 0.35,
+                  ),
+                ),
               ),
             ),
           );
@@ -538,29 +815,58 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget _buildHorizontalMonths() {
     final colors = context.colors;
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
       child: PageView.builder(
-        key: const ValueKey("insights_months_slider"),
+        key: const ValueKey("months_slider"),
         controller: _monthPageController,
+        clipBehavior: Clip.none,
         physics: const BouncingScrollPhysics(),
         onPageChanged: (page) {
-          final computedMonth = (((page % 12) + 12) % 12) + 1;
+          final year = page ~/ 12;
+          final month = (page % 12) + 1;
           setState(() {
-            activeDate = DateTime(activeDate.year, computedMonth, 1);
+            activeDate = DateTime(year, month, 1);
           });
         },
         itemBuilder: (context, index) {
-          final monthIndex = ((index % 12) + 12) % 12;
-          final isSelected = (monthIndex + 1) == activeDate.month;
+          final year = index ~/ 12;
+          final monthIndex = index % 12;
+          final isSelected =
+              year == activeDate.year && (monthIndex + 1) == activeDate.month;
 
-          return Center(
-            child: Text(
-              months[monthIndex],
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          final isCurrentYear = year == DateTime.now().year;
+          final shortName = months[monthIndex].substring(0, 3);
+
+          final String displayText;
+          if (isSelected) {
+            displayText = isCurrentYear
+                ? months[monthIndex]
+                : "${months[monthIndex]} '$year";
+          } else {
+            displayText = isCurrentYear ? shortName : "$shortName '$year";
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _monthPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                displayText,
+                style: TextStyle(
+                  fontSize: isSelected ? 13 : 10,
+                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.w500,
+                  color: isSelected ? colors.textPrimary : colors.textSecondary,
+                ),
               ),
             ),
           );
@@ -572,11 +878,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget _buildHorizontalYears() {
     final colors = context.colors;
 
-    return SizedBox(
+    return Container(
       height: 44,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       child: PageView.builder(
-        key: const ValueKey("insights_years_slider"),
+        key: const ValueKey("years_slider"),
         controller: _yearPageController,
+        clipBehavior: Clip.none,
         physics: const BouncingScrollPhysics(),
         onPageChanged: (page) {
           final computedYear = 2000 + (page - baseIndex);
@@ -588,13 +896,27 @@ class _InsightsScreenState extends State<InsightsScreen> {
           final year = 2000 + (index - baseIndex);
           final isSelected = year == activeDate.year;
 
-          return Center(
-            child: Text(
-              "$year",
-              style: TextStyle(
-                fontSize: isSelected ? 16 : 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: colors.textPrimary.withOpacity(isSelected ? 1.0 : 0.35),
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (!isSelected) {
+                _yearPageController?.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                );
+              }
+            },
+            child: Center(
+              child: Text(
+                "$year",
+                style: TextStyle(
+                  fontSize: isSelected ? 16 : 10,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: colors.textPrimary.withOpacity(
+                    isSelected ? 1.0 : 0.35,
+                  ),
+                ),
               ),
             ),
           );
@@ -614,30 +936,120 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return const SizedBox.shrink();
   }
 
-  Widget _buildSegmentPill({
-    required String label,
-    required bool isActive,
-    required VoidCallback onTap,
+  Widget _buildFullWidthDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      color: context.colors.cardLight.withValues(alpha: 0.6),
+    );
+  }
+
+  Widget _buildSlidingToggle({
+    required String activeType,
+    required ValueChanged<String> onChanged,
     required dynamic colors,
+    double width = 170,
+    double height = 32,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isActive ? colors.purple : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isActive ? Colors.white : colors.textSecondary,
-            fontSize: 12,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
+    const types = ["expense", "income"];
+    final selectedIndex = types.indexOf(activeType).clamp(0, 1);
+    String? hoveredTab;
+
+    return StatefulBuilder(
+      builder: (context, setToggleState) {
+        return SizedBox(
+          width: width,
+          height: height,
+          child: Container(
+            decoration: BoxDecoration(
+              color: colors.card,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: colors.cardLight.withValues(alpha: 0.8),
+                width: 1.0,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tabWidth = constraints.maxWidth / types.length;
+
+                  return Stack(
+                    children: [
+                      // 1. Sliding Active Purple Pill
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeInOutCubic,
+                        left: selectedIndex * tabWidth,
+                        top: 0,
+                        bottom: 0,
+                        width: tabWidth,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          decoration: BoxDecoration(
+                            color: hoveredTab == activeType
+                                ? (colors.purpleLight ?? colors.purple)
+                                : colors.purple,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+
+                      // 2. Interactive Buttons & Hover Targets
+                      Row(
+                        children: types.map((type) {
+                          final isSelected = activeType == type;
+                          final isHovered = hoveredTab == type;
+
+                          return Expanded(
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              onEnter: (_) =>
+                                  setToggleState(() => hoveredTab = type),
+                              onExit: (_) =>
+                                  setToggleState(() => hoveredTab = null),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  if (activeType != type) {
+                                    onChanged(type);
+                                  }
+                                },
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: (!isSelected && isHovered)
+                                        ? colors.cardLight.withValues(
+                                            alpha: 0.35,
+                                          )
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    type == "expense" ? "Expenses" : "Income",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : colors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -653,83 +1065,157 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     final isExpenseTab = activeBreakdownTab == "expense";
     final activeData = isExpenseTab ? categories : incomes;
-    final activeTotal =
-        isExpenseTab ? (summary['expense'] ?? 0.0) : (summary['income'] ?? 0.0);
+    final activeTotal = isExpenseTab
+        ? (summary['expense'] ?? 0.0)
+        : (summary['income'] ?? 0.0);
 
     return Scaffold(
       backgroundColor: colors.background,
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
 
-            // Top Date Range Dropdown
+            // Top Date Range Dropdown (Matching TransactionListScreen)
             Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: colors.purple,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: selectedRange,
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Colors.white,
-                    ),
-                    dropdownColor: colors.card,
-                    selectedItemBuilder: (BuildContext context) {
-                      return rangeOptions.map((String value) {
-                        return Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            value,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
+              child: StatefulBuilder(
+                builder: (context, setHoverState) {
+                  bool isHovered = false;
+
+                  return Builder(
+                    builder: (buttonContext) {
+                      return MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => setHoverState(() => isHovered = true),
+                        onExit: (_) => setHoverState(() => isHovered = false),
+                        child: AnimatedContainer(
+                          height: 38,
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
+                          decoration: BoxDecoration(
+                            color: isHovered
+                                ? colors.purpleLight
+                                : colors.purple,
+                            borderRadius: BorderRadius.circular(999),
                           ),
-                        );
-                      }).toList();
-                    },
-                    items: rangeOptions.map((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(
-                          value,
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontWeight: FontWeight.w600,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              elevation: 0,
+                              shadowColor: Colors.transparent,
+                              backgroundColor: Colors.transparent,
+                              surfaceTintColor: Colors.transparent,
+                              minimumSize: Size.zero,
+                              overlayColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                            ),
+                            onPressed: () async {
+                              final renderBox =
+                                  buttonContext.findRenderObject()
+                                      as RenderBox;
+                              final overlay =
+                                  Navigator.of(
+                                        context,
+                                      ).overlay!.context.findRenderObject()
+                                      as RenderBox;
+
+                              final target = Rect.fromPoints(
+                                renderBox.localToGlobal(
+                                  Offset.zero,
+                                  ancestor: overlay,
+                                ),
+                                renderBox.localToGlobal(
+                                  renderBox.size.bottomRight(Offset.zero),
+                                  ancestor: overlay,
+                                ),
+                              );
+
+                              final selected = await showMenu<String>(
+                                context: context,
+                                color: colors.card,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                position: RelativeRect.fromRect(
+                                  target,
+                                  Offset.zero & overlay.size,
+                                ),
+                                items: rangeOptions.map((String value) {
+                                  final isSelected = value == selectedRange;
+                                  return PopupMenuItem<String>(
+                                    value: value,
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          value,
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? colors.purple
+                                                : colors.textPrimary,
+                                            fontWeight: isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.w500,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          Icon(
+                                            Icons.check,
+                                            color: colors.purple,
+                                            size: 18,
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              );
+
+                              if (selected == "Custom Date") {
+                                await _pickCustomRange();
+                              } else if (selected != null) {
+                                setState(() {
+                                  selectedRange = selected;
+                                  activeDate = DateTime.now();
+                                  _initControllers();
+                                });
+                              }
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  selectedRange,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.keyboard_arrow_down,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
-                    }).toList(),
-                    onChanged: (newValue) async {
-                      if (newValue == "Custom Date") {
-                        await _pickCustomRange();
-                      } else if (newValue != null) {
-                        setState(() {
-                          selectedRange = newValue;
-                          activeDate = DateTime.now();
-                          _initControllers();
-                        });
-                      }
                     },
-                  ),
-                ),
+                  );
+                },
               ),
             ),
-
-            const SizedBox(height: 6),
             _buildTimeframeSlider(),
-            const SizedBox(height: 10),
-
-            const Divider(height: 1, thickness: 1),
+            // 👇 Full screen width divider directly under the slider
+            _buildFullWidthDivider(),
 
             // Main Insights Scroll View
             Expanded(
@@ -742,7 +1228,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       children: [
                         // SECTION 1: METRICS FINANCIAL HEALTH CARD
                         Container(
-                          padding: const EdgeInsets.all(16.0),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8.0,
+                          ), //padding: //EdgeInsets.zero, // 👈 updated here
                           decoration: BoxDecoration(
                             color: colors.card,
                             borderRadius: BorderRadius.circular(16),
@@ -752,14 +1240,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               _buildSummaryRow(
                                 "Income",
                                 "₹${summary['income']!.toStringAsFixed(2)}",
-                                Colors.greenAccent.shade700,
                                 colors,
                               ),
                               const SizedBox(height: 12),
                               _buildSummaryRow(
                                 "Expenses",
                                 "₹${summary['expense']!.toStringAsFixed(2)}",
-                                Colors.redAccent,
                                 colors,
                               ),
                               Divider(
@@ -769,143 +1255,245 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               _buildSummaryRow(
                                 "Net Balance",
                                 "₹${summary['net']!.toStringAsFixed(2)}",
-                                summary['net']! >= 0
-                                    ? colors.purple
-                                    : Colors.orangeAccent,
                                 colors,
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        //const SizedBox(height: 24),
 
-                        // SECTION 2: SPENDING VELOCITY TREND (LINE CHART)
-                        if (trendData.isNotEmpty &&
-                            (selectedRange == "This Month" ||
-                                selectedRange == "This Year" ||
-                                selectedRange == "This Week")) ...[
-                          Text(
-                            "Spending Velocity",
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0,
-                              vertical: 18.0,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colors.card,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: AppLineChart(
-                              key: ValueKey("line_${selectedRange}_${activeDate.month}_${activeDate.year}"),
-                              data: trendData,
-                              lineColor: colors.purple,
-                              height: 190,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                        ],
+                        // SECTION 2: VELOCITY TREND (LINE CHART)
+                        StatefulBuilder(
+                          builder: (context, setVelocityState) {
+                            final targetType = activeVelocityTab;
+                            final Map<String, double> velocityData = {};
 
-                        // SECTION 3: BREAKDOWN BY CATEGORY / SOURCE (PIE CHART)
-                        Container(
-                          padding: const EdgeInsets.all(16.0),
-                          decoration: BoxDecoration(
-                            color: colors.card,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    "Breakdown",
-                                    style: TextStyle(
-                                      color: colors.textPrimary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: colors.cardLight,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Row(
+                            if (selectedRange == "This Month") {
+                              final daysInMonth = DateUtils.getDaysInMonth(
+                                activeDate.year,
+                                activeDate.month,
+                              );
+                              for (int i = 1; i <= daysInMonth; i++) {
+                                velocityData["$i"] = 0.0;
+                              }
+                              for (final t in filteredTransactions) {
+                                if (t.transactionType.trim().toLowerCase() ==
+                                    targetType) {
+                                  final dayKey = "${t.date.day}";
+                                  velocityData[dayKey] =
+                                      (velocityData[dayKey] ?? 0.0) + t.amount;
+                                }
+                              }
+                            } else if (selectedRange == "This Year") {
+                              const shortMonths = [
+                                "Jan",
+                                "Feb",
+                                "Mar",
+                                "Apr",
+                                "May",
+                                "Jun",
+                                "Jul",
+                                "Aug",
+                                "Sep",
+                                "Oct",
+                                "Nov",
+                                "Dec",
+                              ];
+                              for (final m in shortMonths) {
+                                velocityData[m] = 0.0;
+                              }
+                              for (final t in filteredTransactions) {
+                                if (t.transactionType.trim().toLowerCase() ==
+                                    targetType) {
+                                  final monthKey =
+                                      shortMonths[t.date.month - 1];
+                                  velocityData[monthKey] =
+                                      (velocityData[monthKey] ?? 0.0) +
+                                      t.amount;
+                                }
+                              }
+                            } else if (selectedRange == "This Week") {
+                              const weekDays = [
+                                "Mon",
+                                "Tue",
+                                "Wed",
+                                "Thu",
+                                "Fri",
+                                "Sat",
+                                "Sun",
+                              ];
+                              for (final d in weekDays) {
+                                velocityData[d] = 0.0;
+                              }
+                              for (final t in filteredTransactions) {
+                                if (t.transactionType.trim().toLowerCase() ==
+                                    targetType) {
+                                  final dayIndex = t.date.weekday - 1;
+                                  final dayKey = weekDays[dayIndex];
+                                  velocityData[dayKey] =
+                                      (velocityData[dayKey] ?? 0.0) + t.amount;
+                                }
+                              }
+                            }
+
+                            final isExpenseVelocity =
+                                activeVelocityTab == "expense";
+
+                            if (velocityData.isEmpty ||
+                                !(selectedRange == "This Month" ||
+                                    selectedRange == "This Year" ||
+                                    selectedRange == "This Week")) {
+                              return const SizedBox.shrink();
+                            }
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 24),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        _buildSegmentPill(
-                                          label: "Expenses",
-                                          isActive: isExpenseTab,
-                                          onTap: () {
-                                            if (!isExpenseTab) {
-                                              setState(() {
-                                                activeBreakdownTab = "expense";
-                                              });
-                                            }
-                                          },
-                                          colors: colors,
+                                        Text(
+                                          isExpenseVelocity
+                                              ? "Spending Velocity"
+                                              : "Earning Velocity",
+                                          style: TextStyle(
+                                            color: colors.textPrimary,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
-                                        _buildSegmentPill(
-                                          label: "Income",
-                                          isActive: !isExpenseTab,
-                                          onTap: () {
-                                            if (isExpenseTab) {
-                                              setState(() {
-                                                activeBreakdownTab = "income";
-                                              });
-                                            }
-                                          },
+                                        _buildVelocityBadge(
+                                          comp: getVelocityComparison(
+                                            activeVelocityTab,
+                                          ),
                                           colors: colors,
+                                          isIncome: !isExpenseVelocity,
                                         ),
                                       ],
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              activeData.isEmpty || activeTotal <= 0
-                                  ? Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 32.0,
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          isExpenseTab
-                                              ? "No expenses have been added yet."
-                                              : "No income has been added yet.",
-                                          style: TextStyle(
-                                            color: colors.textSecondary,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : AppPieChart(
-                                      key: ValueKey(activeBreakdownTab),
-                                      data: activeData,
-                                      totalAmount: activeTotal,
-                                      centerLabel:
-                                          isExpenseTab ? "Spent" : "Earned",
-                                      showCategoryList: true,
+                                    _buildSlidingToggle(
+                                      activeType: activeVelocityTab,
+                                      colors: colors,
+                                      onChanged: (val) {
+                                        setVelocityState(
+                                          () => activeVelocityTab = val,
+                                        );
+                                      },
                                     ),
-                            ],
-                          ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16.0,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colors.card,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: AppLineChart(
+                                    data: velocityData,
+                                    lineColor: isExpenseVelocity
+                                        ? colors.purple
+                                        : colors.income,
+                                    height: 190,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                        const SizedBox(height: 24),
+                        // SECTION 3: BREAKDOWN BY CATEGORY / SOURCE (PIE CHART)
+                        StatefulBuilder(
+                          builder: (context, setBreakdownState) {
+                            final isExpense = activeBreakdownTab == "expense";
+                            final currentData = isExpense
+                                ? categories
+                                : incomes;
+                            final currentTotal = isExpense
+                                ? (summary['expense'] ?? 0.0)
+                                : (summary['income'] ?? 0.0);
 
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 24),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      isExpense
+                                          ? "Expense Breakdown"
+                                          : "Income Breakdown",
+                                      style: TextStyle(
+                                        color: colors.textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    _buildSlidingToggle(
+                                      activeType: activeBreakdownTab,
+                                      colors: colors,
+                                      onChanged: (val) {
+                                        setBreakdownState(
+                                          () => activeBreakdownTab = val,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: colors.card,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child:
+                                      currentData.isEmpty || currentTotal <= 0
+                                      ? Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 32.0,
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              isExpense
+                                                  ? "No expenses have been added yet."
+                                                  : "No income has been added yet.",
+                                              style: TextStyle(
+                                                color: colors.textSecondary,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : AppPieChart(
+                                          data: currentData,
+                                          totalAmount: currentTotal,
+                                          centerLabel: isExpense
+                                              ? "Spent"
+                                              : "Earned",
+                                          showCategoryList: true,
+                                        ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        //const SizedBox(height: 24),
                         // SECTION 4: TOP LARGEST SPENDS
                         if (topSpends.isNotEmpty) ...[
+                          const SizedBox(height: 24),
                           Text(
                             "Top Spends",
                             style: TextStyle(
@@ -914,7 +1502,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          //const SizedBox(height: 8),
                           Container(
                             decoration: BoxDecoration(
                               color: colors.card,
@@ -926,20 +1514,28 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               itemCount: topSpends.length,
                               separatorBuilder: (_, __) => Divider(
                                 height: 1,
-                                color: colors.divider?.withOpacity(0.4) ??
+                                color:
+                                    colors.divider?.withOpacity(0.4) ??
                                     Colors.grey.shade200,
                               ),
                               itemBuilder: (context, i) {
                                 final t = topSpends[i];
-                                final displayTitle = (t.merchant != null && t.merchant!.trim().isNotEmpty)
+                                final displayTitle =
+                                    (t.merchant != null &&
+                                        t.merchant!.trim().isNotEmpty)
                                     ? t.merchant!.trim()
-                                    : (t.note != null && t.note!.trim().isNotEmpty)
-                                        ? t.note!.trim()
-                                        : (t.category != null && t.category!.trim().isNotEmpty)
-                                            ? t.category!.trim()
-                                            : "Expense";
+                                    : (t.note != null &&
+                                          t.note!.trim().isNotEmpty)
+                                    ? t.note!.trim()
+                                    : (t.category != null &&
+                                          t.category!.trim().isNotEmpty)
+                                    ? t.category!.trim()
+                                    : "Expense";
 
                                 return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0,
+                                  ),
                                   title: Text(
                                     displayTitle,
                                     style: TextStyle(
@@ -958,20 +1554,21 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   trailing: Text(
                                     "₹${t.amount.toStringAsFixed(2)}",
                                     style: TextStyle(
-                                      color: colors.textPrimary,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
+                                      color: colors.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 13,
                                     ),
                                   ),
                                 );
                               },
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          //const SizedBox(height: 24),
                         ],
 
                         // SECTION 5: PROFILE BREAKDOWN
                         if (profiles.isNotEmpty) ...[
+                          const SizedBox(height: 24),
                           Text(
                             "Profile Breakdown",
                             style: TextStyle(
@@ -980,34 +1577,32 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8.0,
+                            ),
                             decoration: BoxDecoration(
                               color: colors.card,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
-                              children: profiles.entries.map((entry) {
-                                return ListTile(
-                                  title: Text(
-                                    entry.key,
-                                    style: TextStyle(
-                                      color: colors.textPrimary,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                              children: [
+                                for (
+                                  int i = 0;
+                                  i < profiles.entries.length;
+                                  i++
+                                ) ...[
+                                  if (i > 0) const SizedBox(height: 12),
+                                  _buildSummaryRow(
+                                    profiles.entries.elementAt(i).key,
+                                    "₹${profiles.entries.elementAt(i).value.toStringAsFixed(2)}",
+                                    colors,
                                   ),
-                                  trailing: Text(
-                                    "₹${entry.value.toStringAsFixed(2)}",
-                                    style: TextStyle(
-                                      color: colors.textPrimary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
+                                ],
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 16),
                         ],
                       ],
                     ),
@@ -1018,29 +1613,24 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
-  Widget _buildSummaryRow(
-    String label,
-    String value,
-    Color valueColor,
-    dynamic colors,
-  ) {
+  Widget _buildSummaryRow(String label, String value, dynamic colors) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
           style: TextStyle(
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: colors.textSecondary,
+            color: colors.textPrimary,
           ),
         ),
         Text(
           value,
           style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: valueColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: colors.textSecondary,
           ),
         ),
       ],

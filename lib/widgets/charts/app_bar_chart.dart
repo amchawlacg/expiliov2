@@ -1,4 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 
@@ -47,7 +48,7 @@ class _AppBarChartState extends State<AppBarChart>
   @override
   void didUpdateWidget(covariant AppBarChart oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.data != widget.data) {
+    if (!mapEquals(oldWidget.data, widget.data)) {
       _controller.forward(from: 0.0);
     }
   }
@@ -82,13 +83,15 @@ class _AppBarChartState extends State<AppBarChart>
               maxY: maxY == 0 ? 10 : maxY * 1.15,
               minY: 0,
               barTouchData: BarTouchData(
-                enabled: _animation.isCompleted, // Disable touch during growth
+                enabled: _animation.isCompleted,
                 touchTooltipData: BarTouchTooltipData(
                   getTooltipColor: (_) => colors.cardLight,
                   tooltipBorder: BorderSide(color: colors.border, width: 1),
                   tooltipBorderRadius: BorderRadius.circular(8),
                   getTooltipItem: (group, groupIndex, rod, rodIndex) {
                     final index = group.x.toInt();
+                    if (index < 0 || index >= keys.length) return null;
+
                     return BarTooltipItem(
                       '${keys[index]}\n',
                       TextStyle(
@@ -133,9 +136,12 @@ class _AppBarChartState extends State<AppBarChart>
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
+                    reservedSize: 28,
                     getTitlesWidget: (double value, TitleMeta meta) {
                       final index = value.toInt();
-                      if (index >= 0 && index < keys.length) {
+                      if (index >= 0 &&
+                          index < keys.length &&
+                          value == index.toDouble()) {
                         return Padding(
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Text(
@@ -150,14 +156,12 @@ class _AppBarChartState extends State<AppBarChart>
                       }
                       return const SizedBox.shrink();
                     },
-                    reservedSize: 28,
                   ),
                 ),
               ),
               gridData: const FlGridData(show: false),
               borderData: FlBorderData(show: false),
               barGroups: List.generate(keys.length, (i) {
-                // Vertical rise from 0 to target Y
                 final animatedY = values[i] * _animation.value;
 
                 return BarChartGroupData(
@@ -176,7 +180,7 @@ class _AppBarChartState extends State<AppBarChart>
                 );
               }),
             ),
-            duration: Duration.zero, // Disable fl_chart internal tweening
+            duration: Duration.zero,
           ),
         );
       },

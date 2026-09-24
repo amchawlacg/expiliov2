@@ -28,94 +28,86 @@ class TransactionOptionTile extends StatefulWidget {
 }
 
 class _TransactionOptionTileState extends State<TransactionOptionTile> {
-  bool isHovering = false;
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return InkWell(
-      onTap: widget.onTap,
-      onHover: (hovering) {
-        setState(() {
-          isHovering = hovering;
-        });
-      },
-      hoverColor: Colors.transparent,
-      splashColor: Colors.transparent,
-      highlightColor: Colors.transparent,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
-        decoration: BoxDecoration(
-          color: isHovering ? colors.cardLight : colors.card,
-        ),
-        child: Row(
-          children: [
-            Container(
-              height: 36,
-              width: 36,
-              decoration: BoxDecoration(
-                color: colors.iconCircle,
-                shape: BoxShape.circle,
-              ),
-              padding: const EdgeInsets.all(8),
-              child: Center(
-                child: widget.svgAssetPath != null
-                    ? SvgPicture.asset(
-                        widget.svgAssetPath!,
-                        width: 20,
-                        height: 20,
-                        fit: BoxFit.contain,
-                        colorFilter: ColorFilter.mode(
-                          colors.textPrimary,
-                          BlendMode.srcIn,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          decoration: BoxDecoration(
+            color: _isHovered
+                ? colors.cardLight.withValues(alpha: 0.5)
+                : colors.cardLight.withValues(alpha: 0.0),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: Center(
+                  child: widget.svgAssetPath != null
+                      ? SvgPicture.asset(
+                          widget.svgAssetPath!,
+                          width: 20,
+                          height: 20,
+                          fit: BoxFit.contain,
+                          colorFilter: ColorFilter.mode(
+                            colors.textPrimary,
+                            BlendMode.srcIn,
+                          ),
+                        )
+                      : Icon(
+                          widget.icon,
+                          size: 20,
+                          color: colors.textPrimary,
                         ),
-                      )
-                    : Icon(
-                        widget.icon,
-                        size: 20,
-                        color: colors.textPrimary,
-                      ),
-              ),
-            ),
-
-            const SizedBox(width: 14),
-
-            Text(
-              widget.title,
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-
-            const Spacer(),
-
-            if (widget.trailingWidget != null)
-              widget.trailingWidget!
-            else if (widget.value != null)
-              Text(
-                widget.value!,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
                 ),
               ),
-
-            const SizedBox(width: 8),
-
-            Icon(
-              Icons.chevron_right,
-              color: colors.textSecondary,
-            ),
-          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  widget.title,
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (widget.trailingWidget != null)
+                widget.trailingWidget!
+              else if (widget.value != null)
+                Text(
+                  widget.value!,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right,
+                color: colors.textSecondary,
+                size: 18,
+              ),
+            ],
+          ),
         ),
       ),
     );
