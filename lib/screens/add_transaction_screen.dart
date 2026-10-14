@@ -14,6 +14,7 @@ import '../services/attachment_service.dart';
 
 import '../constants/expense_categories.dart';
 import '../constants/app_colors.dart';
+import '../constants/currency_constants.dart';
 
 import '../widgets/transaction_option_tile.dart';
 import '../services/sync_service.dart';
@@ -30,6 +31,14 @@ import '../services/category_service.dart';
 import '../widgets/app_alert_dialog.dart';
 
 import 'package:flutter_svg/flutter_svg.dart';
+
+import '../widgets/app_snackbar.dart';
+import '../services/preference_service.dart';
+
+import '../widgets/transaction_input_tile.dart';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/custom_exchange_rate_dialog.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final TransactionModel? transaction;
@@ -59,21 +68,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String profileType = "Personal";
   String paymentMethod = "Cash";
   String selectedCurrency = "USD";
+  String baseCurrencyCode =
+      "USD"; // 👈 Stores user's default currency (e.g. INR, USD)
 
   String? _hoveredToggleTab;
 
   final exchangeRateController = TextEditingController(text: "1.0");
   double exchangeRate = 1.0;
-
-  final Map<String, String> currencySymbols = {
-    "INR": "₹",
-    "USD": "\$",
-    "EUR": "€",
-    "GBP": "£",
-    "AED": "د.إ",
-    "CAD": "C\$",
-    "AUD": "A\$",
-  };
 
   DateTime selectedDate = DateTime.now();
   File? selectedInvoice;
@@ -89,34 +90,43 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _isBackHovered = false;
   bool _isDeleteHovered = false;
 
-  void _onCurrencyChanged(String newCurrency) {
+Future<void> _onCurrencyChanged(String newCurrency) async {
+  setState(() {
+    selectedCurrency = newCurrency;
+  });
+
+  final db = await DatabaseHelper.instance.database;
+  final currencyData = await db.query(
+    'currencies',
+    where: 'code = ?',
+    whereArgs: [newCurrency],
+    limit: 1,
+  );
+
+  final double rate = currencyData.isNotEmpty
+      ? (currencyData.first['rate_to_base'] as num).toDouble()
+      : CurrencyConstants.getDefaultExchangeRate(newCurrency);
+
+  if (mounted) {
     setState(() {
-      selectedCurrency = newCurrency;
-      if (newCurrency == "USD") {
-        exchangeRateController.text = "1.0";
-      } else {
-        const defaultRatesToUSD = {
-          "INR": 0.012,
-          "EUR": 1.08,
-          "GBP": 1.27,
-          "AED": 0.27,
-          "CAD": 0.73,
-          "AUD": 0.65,
-        };
-        final rate = defaultRatesToUSD[newCurrency] ?? 1.0;
-        exchangeRateController.text = rate.toString();
-      }
+      exchangeRateController.text = rate.toString();
     });
   }
+}
+
 
   @override
   void initState() {
     super.initState();
+    _loadBaseCurrency(); // 👈 Add this
 
     // 👈 If initial attachments were passed from chat, pre-populate them
-    if (widget.initialAttachments != null && widget.initialAttachments!.isNotEmpty) {
+    if (widget.initialAttachments != null &&
+        widget.initialAttachments!.isNotEmpty) {
       attachments = List.from(widget.initialAttachments!);
-      selectedInvoice = File(attachments.last.localPath ?? attachments.last.fileName);
+      selectedInvoice = File(
+        attachments.last.localPath ?? attachments.last.fileName,
+      );
     }
 
     final transaction = widget.transaction ?? widget.draftTransaction;
@@ -138,6 +148,32 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       loadAttachments();
     }
     loadCategories();
+  }
+
+  Future<void> _loadBaseCurrency() async {
+    final raw = await PreferencesService.getBaseCurrency();
+    final code = raw.split(' ').first.trim();
+    if (!mounted) return;
+
+    // Fetch the actual rate for the default currency
+    final db = await DatabaseHelper.instance.database;
+    final currencyData = await db.query(
+      'currencies',
+      where: 'code = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    final double rate = currencyData.isNotEmpty
+        ? (currencyData.first['rate_to_base'] as num).toDouble()
+        : CurrencyConstants.getDefaultExchangeRate(code);
+
+    setState(() {
+      baseCurrencyCode = code;
+      if (widget.transaction == null && widget.draftTransaction == null) {
+        selectedCurrency = code;
+        exchangeRateController.text = rate.toString(); // 👈 Populates 1.08 for EUR, not 1.0
+      }
+    });
   }
 
   String _getCategoryIconPath(String category) {
@@ -289,7 +325,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         style: TextStyle(
                           fontSize: isSelected ? 18 : 14,
                           fontWeight: isSelected
-                              ? FontWeight.bold
+                              ? FontWeight.w500
                               : FontWeight.w500,
                           color: colors.textPrimary.withOpacity(
                             isSelected ? 1.0 : 0.35,
@@ -337,7 +373,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -435,76 +471,75 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<List<AttachmentModel>> pickInvoice() async {
-  try {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-      allowMultiple: true, // 👈 Allows multi-file selection
-    );
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+        allowMultiple: true, // 👈 Allows multi-file selection
+      );
 
-    if (result == null || result.files.isEmpty) return [];
+      if (result == null || result.files.isEmpty) return [];
 
-    final List<AttachmentModel> newAttachments = [];
+      final List<AttachmentModel> newAttachments = [];
 
-    for (final file in result.files) {
-      if (file.path == null) continue;
+      for (final file in result.files) {
+        if (file.path == null) continue;
 
-      final String pickedPath = file.path!;
-      final String fileName = file.name;
-      final String ext = pickedPath.split('.').last.toLowerCase();
-      final bool isPdf = ext == 'pdf';
+        final String pickedPath = file.path!;
+        final String fileName = file.name;
+        final String ext = pickedPath.split('.').last.toLowerCase();
+        final bool isPdf = ext == 'pdf';
 
-      AttachmentModel model;
+        AttachmentModel model;
 
-      if (isPdf) {
-        // 1. Copy the PDF to permanent sandboxed storage immediately
-        final String savedPdfPath = await attachmentService.copyToAppStorage(
-          pickedPath,
-          fileName,
-        );
+        if (isPdf) {
+          // 1. Copy the PDF to permanent sandboxed storage immediately
+          final String savedPdfPath = await attachmentService.copyToAppStorage(
+            pickedPath,
+            fileName,
+          );
 
-        // 2. Best-effort Page 1 render (returns file path if successful, null if protected)
-        final String? thumbPath = await attachmentService.generatePdfThumbnailBestEffort(
-          savedPdfPath,
-          fileName,
-        );
+          // 2. Best-effort Page 1 render (returns file path if successful, null if protected)
+          final String? thumbPath = await attachmentService
+              .generatePdfThumbnailBestEffort(savedPdfPath, fileName);
 
-        final now = DateTime.now();
-        model = AttachmentModel(
-          transactionId: widget.transaction?.id,
-          fileName: fileName,
-          localPath: savedPdfPath,
-          localThumbnailPath: thumbPath, // 👈 Real Page 1 thumbnail or null
-          fileType: 'application/pdf',
-          isSynced: false,
-          isDeleted: false,
-          createdAt: now,
-          updatedAt: now,
-        );
-      } else {
-        model = await attachmentService.processPickedFilePath(
-          pickedPath,
-          transactionId: widget.transaction?.id,
-        );
+          final now = DateTime.now();
+          model = AttachmentModel(
+            transactionId: widget.transaction?.id,
+            fileName: fileName,
+            localPath: savedPdfPath,
+            localThumbnailPath: thumbPath, // 👈 Real Page 1 thumbnail or null
+            fileType: 'application/pdf',
+            isSynced: false,
+            isDeleted: false,
+            createdAt: now,
+            updatedAt: now,
+          );
+        } else {
+          model = await attachmentService.processPickedFilePath(
+            pickedPath,
+            transactionId: widget.transaction?.id,
+          );
+        }
+
+        newAttachments.add(model);
       }
 
-      newAttachments.add(model);
-    }
+      if (newAttachments.isNotEmpty) {
+        setState(() {
+          selectedInvoice = File(
+            newAttachments.last.localPath ?? newAttachments.last.fileName,
+          );
+          attachments.addAll(newAttachments);
+        });
+      }
 
-    if (newAttachments.isNotEmpty) {
-      setState(() {
-        selectedInvoice = File(newAttachments.last.localPath ?? newAttachments.last.fileName);
-        attachments.addAll(newAttachments);
-      });
+      return newAttachments;
+    } catch (e, stack) {
+      debugPrint("❌ Error picking invoice: $e\n$stack");
+      return [];
     }
-
-    return newAttachments;
-  } catch (e, stack) {
-    debugPrint("❌ Error picking invoice: $e\n$stack");
-    return [];
   }
-}
-
 
   void _openGallery({int initialIndex = 0}) {
     Navigator.push(
@@ -530,69 +565,134 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  Future<void> saveTransaction() async {
-  if (amountController.text.trim().isEmpty) return;
-  final amount = double.tryParse(amountController.text.trim());
-  if (amount == null) return;
-
-  final rate = double.tryParse(exchangeRateController.text.trim()) ?? 1.0;
-
-  final transaction = TransactionModel(
-    id: widget.transaction?.id,
-    userId: "local_user",
-    amount: amount,
-    currency: selectedCurrency,
-    exchangeRate: rate,
-    baseAmount: amount * rate,
-    transactionType: transactionType,
-    profileType: profileType,
-    category: selectedCategory,
-    subCategory: selectedSubcategory,
-    note: noteController.text,
-    merchant: merchantController.text,
-    paymentMethod: paymentMethod,
-    paymentName: paymentNameController.text,
-    date: selectedDate,
-    source: "manual",
-    createdAt: widget.transaction?.createdAt ?? DateTime.now(),
-    updatedAt: DateTime.now(),
-  );
-
-  // 'attachments' already contains all existing + newly picked files
-  final List<AttachmentModel> attachmentsToSave = List.from(attachments);
-
-  if (widget.transaction == null) {
-    // New transaction
-    if (attachmentsToSave.isNotEmpty) {
-      await DatabaseHelper.instance.insertTransactionWithAttachments(
-        transaction,
-        attachmentsToSave,
+Future<void> saveTransaction() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      HapticFeedback.vibrate();
+      context.showSnackBar(
+        "User session not found. Please sign in again.",
+        type: SnackBarType.error,
       );
-    } else {
-      await DatabaseHelper.instance.insertTransaction(transaction);
+      return;
     }
-  } else {
-    // Updating existing transaction
-    await DatabaseHelper.instance.updateTransaction(transaction);
 
-    // Save newly added attachments (those without a database primary key id)
-    for (final att in attachmentsToSave) {
-      if (att.id == null) {
-        final newAttachment = att.copyWith(
-          transactionId: widget.transaction!.id,
+    final rawAmount = amountController.text.trim();
+
+    // 1. Validate empty input
+    if (rawAmount.isEmpty) {
+      HapticFeedback.vibrate();
+      context.showSnackBar("Please enter an amount", type: SnackBarType.error);
+      return;
+    }
+
+    // 2. Validate parseable number
+    final amount = double.tryParse(rawAmount);
+    if (amount == null) {
+      HapticFeedback.vibrate();
+      context.showSnackBar(
+        "Please enter a valid numeric amount",
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    // 3. Validate non-zero positive amount
+    if (amount <= 0) {
+      HapticFeedback.vibrate();
+      context.showSnackBar(
+        "Amount must be greater than 0",
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    // 4. Validate category existence
+    if (selectedCategory.trim().isEmpty) {
+      HapticFeedback.vibrate();
+      context.showSnackBar(
+        "Please select a category",
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    // 5. Resolve rate to USD anchor (Check DB table first, fallback to constants)
+    final db = await DatabaseHelper.instance.database;
+    final currencyData = await db.query(
+      'currencies',
+      where: 'code = ?',
+      whereArgs: [selectedCurrency],
+      limit: 1,
+    );
+
+    final double dbRate = currencyData.isNotEmpty
+        ? (currencyData.first['rate_to_base'] as num).toDouble()
+        : CurrencyConstants.getDefaultExchangeRate(selectedCurrency);
+
+    // Only use customRate if user is dealing with a foreign currency exchange rate dialog
+    // Otherwise use dbRate (1.08 for EUR, 0.012 for INR, 1.0 for USD)
+    final customRate = double.tryParse(exchangeRateController.text.trim());
+    final double effectiveRate = (selectedCurrency == "USD")
+        ? 1.0
+        : ((customRate != null && customRate > 0 && customRate != 1.0)
+            ? customRate
+            : dbRate);
+
+    // 6. Base amount calculation (ALWAYS anchored to USD)
+    final double calculatedBase = amount * effectiveRate;
+    final double finalBaseAmount = calculatedBase > 0 ? calculatedBase : amount;
+
+    final transaction = TransactionModel(
+      id: widget.transaction?.id,
+      userId: user.uid,
+      amount: amount,
+      currency: selectedCurrency,
+      exchangeRate: effectiveRate,
+      baseAmount: finalBaseAmount, // 👈 Saved in USD anchor
+      transactionType: transactionType,
+      profileType: profileType,
+      category: selectedCategory,
+      subCategory: selectedSubcategory,
+      note: noteController.text.trim(),
+      merchant: merchantController.text.trim(),
+      paymentMethod: paymentMethod,
+      paymentName: paymentNameController.text.trim(),
+      date: selectedDate,
+      source: "manual",
+      createdAt: widget.transaction?.createdAt ?? DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final List<AttachmentModel> attachmentsToSave = List.from(attachments);
+
+    if (widget.transaction == null) {
+      if (attachmentsToSave.isNotEmpty) {
+        await DatabaseHelper.instance.insertTransactionWithAttachments(
+          transaction,
+          attachmentsToSave,
         );
-        await DatabaseHelper.instance.insertAttachment(newAttachment);
+      } else {
+        await DatabaseHelper.instance.insertTransaction(transaction);
+      }
+    } else {
+      await DatabaseHelper.instance.updateTransaction(transaction);
+
+      for (final att in attachmentsToSave) {
+        if (att.id == null) {
+          final newAttachment = att.copyWith(
+            transactionId: widget.transaction!.id,
+          );
+          await DatabaseHelper.instance.insertAttachment(newAttachment);
+        }
       }
     }
+
+    
+    SyncService().processSyncQueue();
+
+    if (mounted) Navigator.pop(context, true);
   }
 
-  appLog(
-    '🟢 [UI] Transaction & attachments saved. Triggering SyncService...',
-  );
-  SyncService().processSyncQueue();
-
-  if (mounted) Navigator.pop(context, true);
-}
 
   Future<bool> _onWillPop() async {
     final initial = widget.transaction ?? widget.draftTransaction;
@@ -737,7 +837,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             }
                           },
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
+                            duration: const Duration(milliseconds: 200),
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: _isBackHovered
@@ -769,7 +869,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                           child: GestureDetector(
                             onTap: _confirmDelete,
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: _isDeleteHovered
@@ -813,8 +913,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             GestureDetector(
                               onTap: () {
                                 showPicker(
-                                  currencySymbols.keys.toList(),
-                                  (value) => _onCurrencyChanged(value),
+                                  CurrencyConstants.supportedCurrencies,
+                                  (value) async =>
+                                      await _onCurrencyChanged(value),
                                   currentSelected: selectedCurrency,
                                   title: "Currency",
                                 );
@@ -822,11 +923,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               child: Padding(
                                 padding: const EdgeInsets.only(right: 6.0),
                                 child: Text(
-                                  currencySymbols[selectedCurrency] ??
-                                      selectedCurrency,
+                                  CurrencyConstants.getSymbol(selectedCurrency),
                                   style: TextStyle(
                                     fontSize: 20,
-                                    color: colors.purple,
+                                    color: colors.hero,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -929,7 +1029,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   ),
                   _buildDivider(),
                   TransactionOptionTile(
-                    svgAssetPath: 'assets/icons/components/payment.svg',
+                    svgAssetPath: 'assets/icons/addtransaction/payment.svg',
                     title: "Payment",
                     value: paymentMethod,
                     onTap: () {
@@ -943,7 +1043,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   ),
                   _buildDivider(),
                   TransactionOptionTile(
-                    svgAssetPath: 'assets/icons/components/profile.svg',
+                    svgAssetPath: 'assets/icons/addtransaction/profile.svg',
                     title: "Profile",
                     value: profileType,
                     onTap: () {
@@ -957,76 +1057,38 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   ),
                   _buildDivider(),
                   TransactionOptionTile(
-                    svgAssetPath: 'assets/icons/components/calendar.svg',
+                    svgAssetPath: 'assets/icons/addtransaction/date.svg',
                     title: "Date",
                     value:
                         "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
                     onTap: selectDate,
                   ),
-                  if (selectedCurrency != "USD") ...[
+                  if (selectedCurrency != baseCurrencyCode) ...[
                     _buildDivider(),
                     TransactionOptionTile(
-                      svgAssetPath: 'assets/icons/components/wallet.svg',
-                      title: "Exchange Rate (1 $selectedCurrency = \$ USD)",
+                      svgAssetPath: 'assets/icons/addtransaction/exchange.svg',
+                      title:
+                          "Exchange Rate (1 $selectedCurrency = $baseCurrencyCode)",
                       value: exchangeRateController.text,
                       onTap: () async {
-                        final inputController = TextEditingController(
-                          text: exchangeRateController.text,
+                        final updatedRate = await CustomExchangeRateDialog.show(
+                          context,
+                          initialRate: exchangeRateController.text,
+                          sourceCurrency: selectedCurrency,
+                          baseCurrency: baseCurrencyCode,
                         );
-                        await showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            backgroundColor: colors.card,
-                            title: Text(
-                              "Custom Exchange Rate",
-                              style: TextStyle(color: colors.textPrimary),
-                            ),
-                            content: TextField(
-                              controller: inputController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              style: TextStyle(color: colors.textPrimary),
-                              decoration: InputDecoration(
-                                labelText: "1 $selectedCurrency in USD",
-                                labelStyle: TextStyle(
-                                  color: colors.textSecondary,
-                                ),
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: Text(
-                                  "Cancel",
-                                  style: TextStyle(color: colors.textSecondary),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  if (inputController.text.trim().isNotEmpty) {
-                                    setState(() {
-                                      exchangeRateController.text =
-                                          inputController.text.trim();
-                                    });
-                                  }
-                                  Navigator.pop(ctx);
-                                },
-                                child: Text(
-                                  "Apply",
-                                  style: TextStyle(color: colors.purple),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
+
+                        if (updatedRate != null && mounted) {
+                          setState(() {
+                            exchangeRateController.text = updatedRate;
+                          });
+                        }
                       },
                     ),
                   ],
                   _buildDivider(),
                   TransactionOptionTile(
-                    svgAssetPath: 'assets/icons/components/invoice.svg',
+                    svgAssetPath: 'assets/icons/addtransaction/invoice.svg',
                     title: "Invoice",
                     trailingWidget: attachments.isNotEmpty
                         ? Stack(
@@ -1047,7 +1109,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                       vertical: 1,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: colors.purple,
+                                      color: colors.hero,
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
@@ -1067,7 +1129,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 14,
-                              fontWeight: FontWeight.w500,
+                              //fontWeight: FontWeight.w500,
                             ),
                           ),
                     onTap: () {
@@ -1079,34 +1141,32 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     },
                   ),
                   _buildDivider(),
-                  customInput(
+                  TransactionInputTile(
                     controller: merchantController,
-                    hint: "Merchant",
-                    svgAssetPath: 'assets/icons/components/store.svg',
+                    hintText: "Merchant",
+                    svgAssetPath: 'assets/icons/addtransaction/merchant.svg',
                   ),
                   _buildDivider(),
-                  customInput(
+                  TransactionInputTile(
                     controller: paymentNameController,
-                    hint: "Payment name",
-                    svgAssetPath: 'assets/icons/components/wallet.svg',
+                    hintText: "Payment name",
+                    svgAssetPath: 'assets/icons/addtransaction/name.svg',
                   ),
                   _buildDivider(),
-                  customInput(
+                  TransactionInputTile(
                     controller: noteController,
-                    hint: "Note",
-                    svgAssetPath: 'assets/icons/components/note.svg',
+                    hintText: "Note",
+                    svgAssetPath: 'assets/icons/addtransaction/note.svg',
                   ),
                 ]),
 
                 Padding(
-                  padding: const EdgeInsets.only(
-                    top: 14,
-                    bottom: 14,
-                  ),
+                  padding: const EdgeInsets.only(top: 14, bottom: 14),
                   child: Center(
                     child: SizedBox(
                       width: 100,
-                      height: 38, // 👈 Explicitly locks height to match the 38px toggle system
+                      height:
+                          38, // 👈 Explicitly locks height to match the 38px toggle system
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
                         onEnter: (_) => setState(() => _isSaveHovered = true),
@@ -1116,8 +1176,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                           curve: Curves.easeInOut,
                           decoration: BoxDecoration(
                             color: _isSaveHovered
-                                ? colors.purpleLight
-                                : colors.purple,
+                                ? colors.heroLight
+                                : colors.hero,
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: ElevatedButton(
@@ -1127,8 +1187,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               backgroundColor: Colors.transparent,
                               surfaceTintColor: Colors.transparent,
                               overlayColor: Colors.transparent,
-                              minimumSize: Size.zero, // 👈 Removes the default 48px constraint
-                              padding: EdgeInsets.zero, // 👈 Ensures clean text centering within 38px
+                              minimumSize: Size
+                                  .zero, // 👈 Removes the default 48px constraint
+                              padding: EdgeInsets
+                                  .zero, // 👈 Ensures clean text centering within 38px
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(999),
                               ),
@@ -1138,8 +1200,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               "Save",
                               style: TextStyle(
                                 color: Colors.white,
-                                fontWeight: FontWeight.w600, // 👈 Matches toggle typography weight
-                                fontSize: 13, // 👈 Matches toggle 13px font size
+                                fontWeight: FontWeight
+                                    .w600, // 👈 Matches toggle typography weight
+                                fontSize:
+                                    13, // 👈 Matches toggle 13px font size
                               ),
                             ),
                           ),
@@ -1148,8 +1212,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     ),
                   ),
                 ),
-              
-              
               ],
             ),
           ),
@@ -1166,7 +1228,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     return Center(
       child: SizedBox(
         width: 380,
-        height: 38, // 👈 Matches the rendered 38px Save button
+        height: 38,
         child: Container(
           decoration: BoxDecoration(
             color: colors.card,
@@ -1185,7 +1247,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 return Stack(
                   children: [
                     // 1. Sliding Active Purple Pill
-                    // 1. Sliding Active Purple Pill
                     AnimatedPositioned(
                       duration: const Duration(milliseconds: 200),
                       curve: Curves.easeInOutCubic,
@@ -1194,12 +1255,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       bottom: 0,
                       width: tabWidth,
                       child: AnimatedContainer(
-                        // 👈 Use AnimatedContainer so the color transition matches the 200ms ease
                         duration: const Duration(milliseconds: 200),
                         decoration: BoxDecoration(
                           color: _hoveredToggleTab == transactionType
-                              ? colors.purpleLight
-                              : colors.purple,
+                              ? colors.heroLight
+                              : colors.hero,
                           borderRadius: BorderRadius.circular(999),
                         ),
                       ),
@@ -1210,6 +1270,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       children: types.map((type) {
                         final isSelected = transactionType == type;
                         final isHovered = _hoveredToggleTab == type;
+
+                        // Background color for non-selected items
+                        Color? tabBackground;
+                        if (!isSelected) {
+                          tabBackground = isHovered
+                              ? colors.secondaryLight
+                              : colors
+                                    .secondary; // or Colors.transparent if unhovered has no fill
+                        }
 
                         return Expanded(
                           child: MouseRegion(
@@ -1224,12 +1293,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                 HapticFeedback.selectionClick();
                                 setState(() => transactionType = type);
                               },
-                              child: Container(
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: (!isSelected && isHovered)
-                                      ? colors.cardLight.withValues(alpha: 0.35)
-                                      : Colors.transparent,
+                                  color: tabBackground,
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -1253,55 +1321,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               },
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget customInput({
-    required TextEditingController controller,
-    required String hint,
-    required String svgAssetPath,
-  }) {
-    final colors = context.colors;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: TextField(
-        controller: controller,
-        style: TextStyle(
-          color: colors.textPrimary,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-        decoration: InputDecoration(
-          icon: SizedBox(
-            width: 24,
-            height: 24,
-            child: Center(
-              child: SvgPicture.asset(
-                svgAssetPath,
-                width: 20,
-                height: 20,
-                fit: BoxFit.contain,
-                colorFilter: ColorFilter.mode(
-                  colors.textPrimary,
-                  BlendMode.srcIn,
-                ),
-              ),
-            ),
-          ),
-          hintText: hint,
-          hintStyle: TextStyle(
-            color: colors.textHint,
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-          ),
-          border: InputBorder.none,
         ),
       ),
     );
@@ -1355,7 +1374,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -1394,17 +1413,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: isSelected
-                                        ? colors.purple
+                                        ? colors.textPrimary
                                         : colors.textPrimary,
                                     fontWeight: isSelected
-                                        ? FontWeight.bold
+                                        ? FontWeight.w500
                                         : FontWeight.w500,
                                   ),
                                 ),
                                 if (isSelected)
                                   Icon(
                                     Icons.check,
-                                    color: colors.purple,
+                                    color: colors.textPrimary,
                                     size: 18,
                                   ),
                               ],

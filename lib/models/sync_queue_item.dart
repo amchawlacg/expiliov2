@@ -3,8 +3,8 @@ import 'dart:convert';
 class SyncQueueItem {
   final int? id;
   final String entityType; // 'transaction', 'attachment', etc.
-  final int entityId;
-  final String action; // 'CREATE', 'UPDATE', 'DELETE'
+  final String entityId;   // CHANGED from int to String
+  final String action;     // 'CREATE', 'UPDATE', 'DELETE'
   final Map<String, dynamic>? payload;
   final DateTime createdAt;
 
@@ -30,12 +30,12 @@ class SyncQueueItem {
 
   factory SyncQueueItem.fromMap(Map<String, dynamic> map) {
     return SyncQueueItem(
-      id: map['id'],
-      entityType: map['entity_type'],
-      entityId: map['entity_id'],
-      action: map['action'],
-      payload: map['payload'] != null ? jsonDecode(map['payload']) : null,
-      createdAt: DateTime.parse(map['created_at']),
+      id: map['id'] as int?,
+      entityType: map['entity_type'] as String,
+      entityId: map['entity_id'].toString(), // Safely handles both String and int
+      action: map['action'] as String,
+      payload: map['payload'] != null ? jsonDecode(map['payload'] as String) : null,
+      createdAt: DateTime.parse(map['created_at'] as String),
     );
   }
 }

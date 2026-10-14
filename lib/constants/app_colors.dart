@@ -15,8 +15,10 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
 
   // Accents & Brand
   final Color primary;
-  final Color purple;
-  final Color purpleLight;
+  final Color hero;
+  final Color heroLight;//final Color purpleLight;
+  final Color heroShadow;//final Color lightPurple;
+  final Color heroBackground;
 
   final Color secondary;
   final Color secondaryLight;
@@ -66,8 +68,10 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     required this.redLight,
     required this.greenLight,
     required this.primary,
-    required this.purple,
-    required this.purpleLight,
+    required this.hero,
+    required this.heroLight,
+    required this.heroShadow,
+    required this.heroBackground,
     required this.secondary,
     required this.secondaryLight,
     required this.textPrimary,
@@ -106,8 +110,10 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     green: Color(0xff2B8A3E),
     greenLight: Color(0xffADEAB9),
     primary: Color(0xff7BC000),
-    purple: Color(0xffC8A8FF),
-    purpleLight: Color.fromARGB(255, 209, 182, 255),
+    hero: Color.fromARGB(255, 0, 145, 255),
+    heroLight: Color.fromARGB(255, 92, 184, 255),
+    heroShadow: Color.fromARGB(255, 216, 194, 255),
+    heroBackground: Colors.lightBlue,
     secondary: Color(0xff2a2a2a),
     secondaryLight: Color.fromARGB(255, 188, 145, 145),
     textPrimary: Colors.white,
@@ -140,16 +146,18 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
   static const light = AppColorScheme(
     background: Color.fromARGB(255, 254, 254, 255),
     card: Color(0xffFFFFFF),
-    cardLight: Color(0xffF1F3F5),
+    cardLight: Color.fromARGB(255, 242, 242, 247),
     red: Color(0xffE03131),
     redLight: Color(0xffffdfdf),
     green: Color(0xff2B8A3E),
     greenLight: Color(0xffADEAB9),
     primary: Color(0xff5C940D),
-    purple: Color(0xff6F2DBD),
-    purpleLight: Color.fromARGB(255, 135, 79, 199),
+    hero: Color.fromARGB(255, 0, 136, 255),
+    heroLight: Color.fromARGB(255, 30, 110, 244),
+    heroShadow: Color.fromARGB(255, 216, 194, 255),
+    heroBackground:  Color.fromARGB(255, 203, 232, 255),
     secondary: Color(0xffFFFFFF),
-    secondaryLight: Color.fromARGB(255, 77, 119, 161),
+    secondaryLight: Color.fromARGB(255, 242, 242, 247), //same as card
     textPrimary: Color(0xff212529),
     textSecondary: Color(0xff6C757D),
     textHint: Color(0xffADB5BD),
@@ -184,8 +192,9 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
     Color? green,
     Color? greenLight,
     Color? primary,
-    Color? purple,
-    Color? purpleLight,
+    Color? hero,
+    Color? heroLight,
+    Color? heroShadow,
     Color? secondary,
     Color? secondaryLight,
     Color? textPrimary,
@@ -220,8 +229,10 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       green: green ?? this.green,
       greenLight: greenLight ?? this.greenLight,
       primary: primary ?? this.primary,
-      purple: purple ?? this.purple,
-      purpleLight: purpleLight ?? this.purpleLight,
+      hero: hero ?? this.hero,
+      heroLight: heroLight ?? this.heroLight,
+      heroShadow: heroShadow ?? this.heroShadow,
+      heroBackground: heroBackground ?? this.heroBackground,
       secondary: secondary ?? this.secondary,
       secondaryLight: secondaryLight ?? this.secondaryLight,
       textPrimary: textPrimary ?? this.textPrimary,
@@ -261,8 +272,10 @@ class AppColorScheme extends ThemeExtension<AppColorScheme> {
       green: Color.lerp(green, other.green, t)!,
       greenLight: Color.lerp(greenLight, other.greenLight, t)!,
       primary: Color.lerp(primary, other.primary, t)!,
-      purple: Color.lerp(purple, other.purple, t)!,
-      purpleLight: Color.lerp(purpleLight, other.purpleLight, t)!,
+      hero: Color.lerp(hero, other.hero, t)!,
+      heroLight: Color.lerp(heroLight, other.heroLight, t)!,
+      heroShadow: Color.lerp(heroShadow, other.heroShadow, t)!,
+      heroBackground: Color.lerp(heroBackground, other.heroBackground, t)!,
       secondary: Color.lerp(secondary, other.secondary, t)!,
       secondaryLight: Color.lerp(secondaryLight, other.secondaryLight, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,

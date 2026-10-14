@@ -13,6 +13,10 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdfx/pdfx.dart';
 
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint, kIsWeb;
+import 'package:flutter/painting.dart' show imageCache;
+import 'dart:io' show File, Directory;
+import 'dart:io' show File, Directory, FileSystemEntity;
+import 'package:flutter/painting.dart' show PaintingBinding;
 
 class AttachmentChangeNotifier extends ChangeNotifier {
   void notify() => notifyListeners();
@@ -31,7 +35,7 @@ class AttachmentService {
   Future<AttachmentModel?> captureAttachment({
     required bool useDocumentScanner,
     ImageSource source = ImageSource.camera,
-    int? transactionId,
+    String? transactionId,
   }) async {
     // 1. ML Kit Document Scanner (Mobile only)
     if (!kIsWeb && useDocumentScanner && source == ImageSource.camera) {
@@ -78,7 +82,7 @@ class AttachmentService {
   /// Handles image processing for Web browsers (in-memory paths/blobs)
   Future<AttachmentModel> _processWebImage(
     XFile file, {
-    int? transactionId,
+    String? transactionId,
   }) async {
     final DateTime now = DateTime.now();
     final String timeStamp = now.millisecondsSinceEpoch.toString();
@@ -101,7 +105,7 @@ class AttachmentService {
   /// Handles persistent storage and image/thumbnail compression for native platforms
   Future<AttachmentModel> _saveAndCompressNative(
     String rawFilePath, {
-    int? transactionId,
+    String? transactionId,
   }) async {
     final Directory appDir = await getApplicationDocumentsDirectory();
     final DateTime now = DateTime.now();
@@ -160,7 +164,7 @@ class AttachmentService {
   /// Public helper to process, compress, and create thumbnails from any file path
   Future<AttachmentModel> processPickedFilePath(
     String filePath, {
-    int? transactionId,
+    String? transactionId,
   }) async {
     return await _saveAndCompressNative(filePath, transactionId: transactionId);
   }
@@ -201,12 +205,13 @@ class AttachmentService {
     );
 
     final id = await _database.insertAttachment(newAttachment);
-    notifyChange(); // <-- Triggers silent background reload in InvoiceGalleryScreen
-    return id;
+  await recalculateAndPersistStorageUsed(); // <-- Add this
+  notifyChange();
+  return id;
   }
 
   /// Fetches all non-deleted attachments for a transaction
-  Future<List<AttachmentModel>> getAttachments(int transactionId) async {
+  Future<List<AttachmentModel>> getAttachments(String transactionId) async {
     return await _database.getAttachments(transactionId);
   }
 
@@ -258,7 +263,7 @@ class AttachmentService {
 
 
   /// Downloads an attachment from a remote URL to local app storage
-  /// Downloads the remote attachment to local storage and saves local_path in SQLite
+  /// Downloads the remote attachment to the user's Downloads directory and saves local_path in SQLite
   Future<String?> downloadAttachmentFile(AttachmentModel attachment) async {
     // 1. Get the remote download URL
     final remoteUrl = attachment.cloudUrl;
@@ -272,18 +277,27 @@ class AttachmentService {
       throw Exception("Download failed with status: ${response.statusCode}");
     }
 
-    // 3. Save to local app storage
-    final Directory appDir = await getApplicationDocumentsDirectory();
-    final String fullDir = p.join(appDir.path, 'attachments', 'full');
-    await Directory(fullDir).create(recursive: true);
+    // 3. Resolve the user's Downloads directory
+    Directory? targetDir = await getDownloadsDirectory();
+    targetDir ??= await getApplicationDocumentsDirectory();
 
-    final String timeStamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final String filePath = p.join(fullDir, '${timeStamp}_${attachment.fileName}');
+    // 4. Generate filename (avoid overwriting existing files in Downloads)
+    final ext = p.extension(attachment.fileName);
+    final baseName = p.basenameWithoutExtension(attachment.fileName);
+    String filePath = p.join(targetDir.path, attachment.fileName);
+    File localFile = File(filePath);
 
-    final File localFile = File(filePath);
+    int counter = 1;
+    while (localFile.existsSync()) {
+      filePath = p.join(targetDir.path, '${baseName}_$counter$ext');
+      localFile = File(filePath);
+      counter++;
+    }
+
+    // 5. Write file to Downloads
     await localFile.writeAsBytes(response.bodyBytes, flush: true);
 
-    // 4. Persist the new local_path in SQLite so it never has to download again
+    // 6. Persist the new local_path in SQLite
     if (attachment.id != null) {
       await _database.updateAttachmentLocalPath(
         id: attachment.id!,
@@ -293,7 +307,6 @@ class AttachmentService {
 
     return filePath;
   }
-
 
   /// Downloads the lightweight thumbnail to local storage and updates local_thumbnail_path in SQLite
   Future<String?> downloadThumbnailFile(AttachmentModel attachment) async {
@@ -315,9 +328,14 @@ class AttachmentService {
     }
 
     try {
-      // 3. Download the thumbnail bytes
+      debugPrint("🌐 [THUMB REQ] URL: $remoteUrl");
       final response = await http.get(Uri.parse(remoteUrl));
-      if (response.statusCode != 200) return null;
+      debugPrint("🌐 [THUMB REQ] Status Code: ${response.statusCode} (Bytes: ${response.bodyBytes.length})");
+
+      if (response.statusCode != 200) {
+        debugPrint("❌ [THUMB REQ] Failed body: ${response.body}");
+        return null;
+      }
 
       // 4. Save into app's attachments/thumbs directory
       final Directory appDir = await getApplicationDocumentsDirectory();
@@ -332,16 +350,28 @@ class AttachmentService {
       await localFile.writeAsBytes(response.bodyBytes, flush: true);
 
       // 5. Persist the new local_thumbnail_path in SQLite
-      if (attachment.id != null) {
+      final db = await _database.database;
+      if (attachment.id != null && attachment.id! > 0) {
         await _database.updateAttachmentLocalThumbnailPath(
           id: attachment.id!,
           localThumbnailPath: thumbPath,
         );
+      } else if (attachment.transactionId != null) {
+        await db.update(
+          'attachments',
+          {
+            'local_thumbnail_path': thumbPath,
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'transaction_id = ? AND file_name = ?',
+          whereArgs: [attachment.transactionId, attachment.fileName],
+        );
       }
 
+      notifyChange();
       return thumbPath;
-    } catch (e) {
-      debugPrint("Failed to download thumbnail: $e");
+    } catch (e, stack) {
+      debugPrint("❌ [THUMB REQ] Exception: $e\n$stack");
       return null;
     }
   }
@@ -389,4 +419,95 @@ class AttachmentService {
     }
     return null;
   }
+
+  /// Cleans up all cached/saved attachment files and thumbnails from the device disk.
+  Future<void> clearAllLocalFiles() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      
+      // Target the directory where your app saves attachments (adjust subfolder name if needed)
+      final attachmentsDir = Directory('${appDir.path}/attachments');
+      if (await attachmentsDir.exists()) {
+        await attachmentsDir.delete(recursive: true);
+      }
+
+      final thumbsDir = Directory('${appDir.path}/thumbnails');
+      if (await thumbsDir.exists()) {
+        await thumbsDir.delete(recursive: true);
+      }
+    } catch (e) {
+      // Non-fatal if folder doesn't exist or already empty
+    }
+  }
+
+
+  /// Calculates total size of all active attachments and updates the user session in SQLite
+Future<double> recalculateAndPersistStorageUsed() async {
+  try {
+    final session = await _database.getActiveUserSession();
+    final uid = session?['id'] as String?;
+    if (uid == null || uid.isEmpty) return 0.0;
+
+    // Fetch all active, non-deleted attachments
+    final db = await _database.database;
+    final records = await db.query(
+      'attachments',
+      columns: ['local_path'],
+      where: 'is_deleted = ?',
+      whereArgs: [0],
+    );
+
+    int totalBytes = 0;
+    if (!kIsWeb) {
+      for (final row in records) {
+        final path = row['local_path'] as String?;
+        if (path != null && path.isNotEmpty) {
+          final file = File(path);
+          if (file.existsSync()) {
+            totalBytes += file.lengthSync();
+          }
+        }
+      }
+    }
+
+    final double totalMB = totalBytes / (1024 * 1024);
+
+    await _database.updateUserStorageStats(
+      uid: uid,
+      storageUsedMb: totalMB,
+    );
+
+    return totalMB;
+  } catch (e) {
+    debugPrint("Failed to recalculate storage: $e");
+    return 0.0;
+  }
+}
+
+
+/// Clears in-memory image cache and generated thumbnail cache files
+Future<void> clearImageCacheOnly() async {
+  try {
+    // 1. Evict all cached images from Flutter engine memory
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+
+    // 2. Clear cached thumbnail directory on disk (if native)
+    if (!kIsWeb) {
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final Directory thumbsDir = Directory(p.join(appDir.path, 'attachments', 'thumbs'));
+      if (await thumbsDir.exists()) {
+        await thumbsDir.delete(recursive: true);
+        await thumbsDir.create(recursive: true);
+      }
+    }
+
+    // 3. Recalculate storage stats and notify listeners
+    await recalculateAndPersistStorageUsed();
+    notifyChange();
+  } catch (e) {
+    debugPrint("Failed to clear image cache: $e");
+  }
+}
+
 }

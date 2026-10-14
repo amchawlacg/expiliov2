@@ -153,7 +153,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
         fit: BoxFit.contain,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return Center(child: CircularProgressIndicator(color: colors.purple));
+          return Center(child: CircularProgressIndicator(color: colors.hero));
         },
         errorBuilder: (_, __, ___) => _buildThumbnailFallback(attachment, colors),
       );
@@ -173,7 +173,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
           fit: BoxFit.contain,
           loadingBuilder: (context, child, progress) {
             if (progress == null) return child;
-            return Center(child: CircularProgressIndicator(color: colors.purple));
+            return Center(child: CircularProgressIndicator(color: colors.hero));
           },
           errorBuilder: (_, __, ___) => _buildPdfFallbackCard(attachment, colors),
         );
@@ -198,7 +198,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
         fit: BoxFit.contain,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return Center(child: CircularProgressIndicator(color: colors.purple));
+          return Center(child: CircularProgressIndicator(color: colors.hero));
         },
         errorBuilder: (_, __, ___) => Center(
           child: Icon(Icons.broken_image_rounded, color: colors.textHint, size: 60),
@@ -288,7 +288,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                           behavior: HitTestBehavior.opaque,
                           onTap: () => Navigator.pop(context),
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
+                            duration: const Duration(milliseconds: 200),
                             width: 36,
                             height: 36,
                             alignment: Alignment.center,
@@ -340,14 +340,14 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                   behavior: HitTestBehavior.opaque,
                                   onTap: _handleDownload,
                                   child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 150),
+                                    duration: const Duration(milliseconds: 200),
                                     width: 36,
                                     height: 36,
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
                                       color: _isDownloadHovered
-                                          ? colors.purpleLight
-                                          : colors.purpleLight
+                                          ? colors.heroLight
+                                          : colors.heroLight
                                               .withValues(alpha: 0),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
@@ -357,12 +357,12 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                             height: 18,
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: colors.purple,
+                                              color: colors.hero,
                                             ),
                                           )
                                         : Icon(
                                             Icons.download_rounded,
-                                            color: colors.purple,
+                                            color: colors.hero,
                                             size: 20,
                                           ),
                                   ),
@@ -407,7 +407,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                   }
                                 },
                                 child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
+                                  duration: const Duration(milliseconds: 200),
                                   width: 36,
                                   height: 36,
                                   alignment: Alignment.center,
@@ -505,7 +505,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                       onTap: _goToPrevious,
                                       child: TweenAnimationBuilder<Color?>(
                                         duration: const Duration(
-                                          milliseconds: 150,
+                                          milliseconds: 200,
                                         ),
                                         curve: Curves.easeInOut,
                                         tween: ColorTween(
@@ -549,7 +549,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                       onTap: _goToNext,
                                       child: TweenAnimationBuilder<Color?>(
                                         duration: const Duration(
-                                          milliseconds: 150,
+                                          milliseconds: 200,
                                         ),
                                         curve: Curves.easeInOut,
                                         tween: ColorTween(
@@ -602,7 +602,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                             child: GestureDetector(
                               onTap: _isPicking ? null : _handleAddMore,
                               child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
+                                duration: const Duration(milliseconds: 200),
                                 width: 52,
                                 height: 52,
                                 decoration: BoxDecoration(
@@ -611,11 +611,14 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                       : colors.card,
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: _isAddMoreHovered
+                                    /*color: _isAddMoreHovered aman
                                         ? colors.purple
                                         : colors.cardLight.withValues(
                                             alpha: 0.8,
-                                          ),
+                                          ),*/
+                                    color: _isAddMoreHovered
+                                        ? colors.hero
+                                        : colors.heroShadow,
                                     width: 1.2,
                                   ),
                                 ),
@@ -626,13 +629,13 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                           height: 20,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            color: colors.purple,
+                                            color: colors.hero,
                                           ),
                                         )
                                       : Icon(
                                           Icons.add_rounded,
                                           color: _isAddMoreHovered
-                                              ? colors.purple
+                                              ? colors.hero
                                               : colors.textSecondary,
                                           size: 24,
                                         ),
@@ -651,15 +654,18 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                           child: GestureDetector(
                             onTap: () => _scrollToIndex(index),
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
+                              duration: const Duration(milliseconds: 200),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: isSelected
+                                  /*color: isSelected aman
                                       ? colors.purple
                                       : colors.cardLight.withValues(
                                           alpha: 0.7,
-                                        ),
+                                        ),*/
+                                  color: isSelected
+                                      ? colors.hero
+                                      : colors.cardLight,
                                   width: isSelected ? 2.2 : 1.0,
                                 ),
                               ),
@@ -679,7 +685,7 @@ class _AttachmentGalleryScreenState extends State<AttachmentGalleryScreen> {
                                         child: Container(
                                           padding: const EdgeInsets.all(2),
                                           decoration: BoxDecoration(
-                                            color: colors.purple,
+                                            color: colors.hero,
                                             shape: BoxShape.circle,
                                           ),
                                           child: const Icon(

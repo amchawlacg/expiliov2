@@ -4,101 +4,108 @@ import '../models/transaction.dart';
 import '../models/spending_query_models.dart';
 import '../models/message.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+import 'dart:io';
 
 class GeminiService {
   final String apiKey;
-  late final GenerativeModel _model;
 
-  GeminiService({required this.apiKey}) {
+  GeminiService({required this.apiKey});
+
+  // Reusable schema definition
+  static final Schema _responseSchema = Schema.object(
+    properties: {
+      'message': Schema.string(
+        description: 'A brief, conversational acknowledgement or reply.',
+      ),
+      'action_type': Schema.string(
+        description: 'Must be one of: QUERY, ADD_DRAFT, NONE',
+      ),
+      'query_intent': Schema.object(
+        nullable: true,
+        properties: {
+          'intent_type': Schema.string(
+            description:
+                'One of: spending_summary, period_overview, top_categories, top_merchants, list_transactions, unknown',
+          ),
+          'keywords': Schema.array(
+            items: Schema.string(),
+            description: 'Search items/subjects. Exclude action verbs.',
+          ),
+          'start_date': Schema.string(
+            nullable: true,
+            description: 'YYYY-MM-DD',
+          ),
+          'end_date': Schema.string(
+            nullable: true,
+            description: 'YYYY-MM-DD',
+          ),
+          'transaction_type': Schema.string(
+            nullable: true,
+            description: 'expense or income',
+          ),
+          'profile_type': Schema.string(
+            nullable: true,
+            description: 'Personal or Business',
+          ),
+          'payment_method': Schema.string(nullable: true),
+          'min_amount': Schema.number(nullable: true),
+          'max_amount': Schema.number(nullable: true),
+          'limit': Schema.integer(nullable: true),
+        },
+      ),
+      'draft_transaction': Schema.object(
+        nullable: true,
+        properties: {
+          'amount': Schema.number(description: 'Numeric amount only.'),
+          'currency': Schema.string(
+            description:
+                '3-letter currency code: USD, INR, EUR, GBP, AED, CAD, AUD.',
+          ),
+          'transaction_type': Schema.string(
+            description: 'expense, income, or transfer',
+          ),
+          'profile_type': Schema.string(
+            description: 'Personal or Business',
+          ),
+          'category': Schema.string(
+            nullable: true,
+            description: 'e.g., Food, Travel, Shopping, Bills, Entertainment.',
+          ),
+          'subcategory': Schema.string(
+            nullable: true,
+            description: 'e.g., Restaurant, Coffee, Groceries, Flight, Taxi.',
+          ),
+          'merchant': Schema.string(
+            nullable: true,
+            description: 'Vendor or shop name (e.g. Starbucks, Uber).',
+          ),
+          'payment_method': Schema.string(
+            nullable: true,
+            description: 'Cash, Credit Card, Debit Card, UPI, or Bank.',
+          ),
+          'payment_name': Schema.string(nullable: true),
+          'note': Schema.string(nullable: true),
+          'date': Schema.string(
+            description: 'Date in YYYY-MM-DD format.',
+          ),
+        },
+      ),
+    },
+    requiredProperties: ['message', 'action_type'],
+  );
+
+  GenerativeModel _getModel() {
     final now = DateTime.now();
     final today =
         "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-    _model = GenerativeModel(
+    return GenerativeModel(
       model: 'gemini-3.1-flash-lite',
       apiKey: apiKey,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
-        responseSchema: Schema.object(
-          properties: {
-            'message': Schema.string(
-              description: 'A brief, conversational acknowledgement or reply.',
-            ),
-            'action_type': Schema.string(
-              description: 'Must be one of: QUERY, ADD_DRAFT, NONE',
-            ),
-            'query_intent': Schema.object(
-              nullable: true,
-              properties: {
-                'intent_type': Schema.string(
-                  description:
-                      'One of: spending_summary, period_overview, top_categories, top_merchants, list_transactions, unknown',
-                ),
-                'keywords': Schema.array(
-                  items: Schema.string(),
-                  description: 'Search items/subjects. Exclude action verbs.',
-                ),
-                'start_date': Schema.string(
-                  nullable: true,
-                  description: 'YYYY-MM-DD',
-                ),
-                'end_date': Schema.string(
-                  nullable: true,
-                  description: 'YYYY-MM-DD',
-                ),
-                'transaction_type': Schema.string(
-                  nullable: true,
-                  description: 'expense or income',
-                ),
-                'profile_type': Schema.string(
-                  nullable: true,
-                  description: 'Personal or Business',
-                ),
-                'payment_method': Schema.string(nullable: true),
-                'min_amount': Schema.number(nullable: true),
-                'max_amount': Schema.number(nullable: true),
-                'limit': Schema.integer(nullable: true),
-              },
-            ),
-            'draft_transaction': Schema.object(
-              nullable: true,
-              properties: {
-                'amount': Schema.number(description: 'Numeric amount only.'),
-                'currency': Schema.string(
-                  description: '3-letter currency code: USD, INR, EUR, GBP, AED, CAD, AUD.',
-                ),
-                'transaction_type': Schema.string(
-                  description: 'expense, income, or transfer',
-                ),
-                'profile_type': Schema.string(
-                  description: 'Personal or Business',
-                ),
-                'category': Schema.string(
-                  nullable: true,
-                  description: 'e.g., Food, Travel, Shopping, Bills, Entertainment.',
-                ),
-                'subcategory': Schema.string(
-                  nullable: true,
-                  description: 'e.g., Restaurant, Coffee, Groceries, Flight, Taxi.',
-                ),
-                'merchant': Schema.string(
-                  nullable: true,
-                  description: 'Vendor or shop name (e.g. Starbucks, Uber).',
-                ),
-                'payment_method': Schema.string(
-                  nullable: true,
-                  description: 'Cash, Credit Card, Debit Card, UPI, or Bank.',
-                ),
-                'payment_name': Schema.string(nullable: true),
-                'note': Schema.string(nullable: true),
-                'date': Schema.string(
-                  description: 'Date in YYYY-MM-DD format.',
-                ),
-              },
-            ),
-          },
-          requiredProperties: ['message', 'action_type'],
-        ),
+        responseSchema: _responseSchema,
       ),
       systemInstruction: Content.system('''
 You are Expilio, a personal finance assistant.
@@ -115,6 +122,7 @@ DECISION RULES:
    - "intent_type" must be strictly one of: ["spending_summary", "period_overview", "top_categories", "top_merchants", "list_transactions", "unknown"].
    - Set "draft_transaction" to null.
 4. "NONE": Choose for casual conversation or non-transaction advice. Set both nested objects to null.
+5. "IMAGE / RECEIPT ATTACHED": If an image/document is provided, treat it as a receipt or bill. Extract the total amount, merchant/store name, transaction date, and likely category into "ADD_DRAFT".
 '''),
     );
   }
@@ -122,6 +130,8 @@ DECISION RULES:
   Future<GeminiChatResult> processMessage(
     String prompt, {
     List<MessageModel> history = const [],
+    Uint8List? attachmentBytes,
+    String? attachmentMimeType,
   }) async {
     try {
       // 1. Sliding window: keep only the last 6 messages (3 turns of conversation)
@@ -156,11 +166,25 @@ DECISION RULES:
         contents.removeLast();
       }
 
-      // 4. Append current user prompt
-      contents.add(Content.text(prompt));
+      // 4. Append current user prompt (supports multimodal image input)
+      final List<Part> userParts = [];
 
-      // 4. Send the full bounded context to the model
-      final response = await _model.generateContent(contents);
+      if (attachmentBytes != null &&
+          attachmentMimeType != null &&
+          attachmentBytes.isNotEmpty) {
+        userParts.add(DataPart(attachmentMimeType, attachmentBytes));
+      }
+
+      final effectivePrompt = prompt.trim().isNotEmpty
+          ? prompt.trim()
+          : "Scan this receipt and log the transaction.";
+      userParts.add(TextPart(effectivePrompt));
+
+      contents.add(Content.multi(userParts));
+
+      // 5. Send to model generated with current date
+      final model = _getModel();
+      final response = await model.generateContent(contents);
       final rawText = response.text;
 
       if (rawText == null || rawText.trim().isEmpty) {
@@ -179,7 +203,8 @@ DECISION RULES:
         final now = DateTime.now();
 
         DateTime parsedDate = now;
-        if (draftMap['date'] != null && (draftMap['date'] as String).trim().isNotEmpty) {
+        if (draftMap['date'] != null &&
+            (draftMap['date'] as String).trim().isNotEmpty) {
           final d = DateTime.tryParse(draftMap['date']);
           if (d != null) parsedDate = d;
         }
@@ -193,14 +218,17 @@ DECISION RULES:
           currency: currency,
           exchangeRate: 1.0,
           baseAmount: rawAmount,
-          transactionType: (draftMap['transaction_type'] as String?)?.toLowerCase() ?? 'expense',
+          transactionType:
+              (draftMap['transaction_type'] as String?)?.toLowerCase() ??
+                  'expense',
           profileType: draftMap['profile_type'] as String? ?? 'Personal',
           category: draftMap['category'] as String? ?? 'Food',
           subCategory: draftMap['subcategory'] as String? ?? 'Coffee',
           merchant: draftMap['merchant'] as String?,
           paymentMethod: draftMap['payment_method'] as String? ?? 'Cash',
           paymentName: draftMap['payment_name'] as String?,
-          note: draftMap['note'] as String? ?? draftMap['subcategory'] as String?,
+          note:
+              draftMap['note'] as String? ?? draftMap['subcategory'] as String?,
           date: parsedDate,
           source: 'chat',
           createdAt: now,
@@ -238,7 +266,4 @@ DECISION RULES:
       );
     }
   }
-
-
-
 }

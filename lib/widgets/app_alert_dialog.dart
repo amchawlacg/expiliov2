@@ -21,11 +21,13 @@ class AppAlertDialog {
         builder: (context, setState) {
           final confirmBaseColor = isDestructive
               ? colors.redLight
-              : colors.purple.withValues(alpha: 0.15);
-          final confirmTextColor = isDestructive ? colors.red : colors.purple;
+              //: colors.purple.withValues(alpha: 0.15); aman
+              : colors.heroShadow;
+          final confirmTextColor = isDestructive ? colors.red : colors.hero;
 
           return AlertDialog(
             backgroundColor: colors.card,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24), // 👈 ADD THIS
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
             ),
@@ -34,16 +36,19 @@ class AppAlertDialog {
               title,
               style: TextStyle(
                 color: colors.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                fontSize: 16,
               ),
             ),
             contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            content: Text(
-              message,
-              style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 14,
+            content: SizedBox( // 👈 WRAP IN SIZEDBOX
+              width: 320,
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 14,
+                ),
               ),
             ),
             actionsPadding: const EdgeInsets.fromLTRB(20, 0, 16, 16),
@@ -60,13 +65,17 @@ class AppAlertDialog {
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       decoration: BoxDecoration(
-                        color: isCancelHovered
+                        /*color: isCancelHovered
                             ? Color.alphaBlend(
                                 Colors.black.withValues(alpha: 0.15),
                                 colors.cardLight,
                               )
-                            : colors.cardLight,
-                        borderRadius: BorderRadius.circular(100),
+                            : colors.cardLight,*/
+                        color: isCancelHovered
+                                        ? colors.cardLight
+                                        : colors.cardLight.withValues(alpha: 0),
+                                    borderRadius: BorderRadius.circular(999),
+                        
                       ),
                       child: TextButton(
                         style: TextButton.styleFrom(
@@ -85,8 +94,8 @@ class AppAlertDialog {
                           cancelText,
                           style: TextStyle(
                             color: colors.textPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            //fontSize: 13,
                           ),
                         ),
                       ),
@@ -104,12 +113,9 @@ class AppAlertDialog {
                       duration: const Duration(milliseconds: 150),
                       decoration: BoxDecoration(
                         color: isConfirmHovered
-                            ? Color.alphaBlend(
-                                Colors.black.withValues(alpha: 0.15),
-                                confirmBaseColor,
-                              )
-                            : confirmBaseColor,
-                        borderRadius: BorderRadius.circular(100),
+                                        ? confirmBaseColor
+                                        : confirmBaseColor.withValues(alpha: 0),
+                                    borderRadius: BorderRadius.circular(999),
                       ),
                       child: TextButton(
                         style: TextButton.styleFrom(
@@ -129,7 +135,7 @@ class AppAlertDialog {
                           style: TextStyle(
                             color: confirmTextColor,
                             fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                            //fontSize: 13,
                           ),
                         ),
                       ),

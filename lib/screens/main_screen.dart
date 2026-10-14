@@ -19,15 +19,17 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   // 0: Invoices, 1: Chat, 2: Spending, 3: Insights, 4: Profile
-  int selectedIndex = 1; // 👈 Starts directly on Chat (or set to 0 for Invoices)
+  int selectedIndex = 1;
+
+  final GlobalKey<TransactionListScreenState> _spendingKey = GlobalKey<TransactionListScreenState>();
 
   // Tracks which tabs have been opened at least once to prevent cold-boot overload
   final Set<int> _loadedTabs = {1};
 
-  final List<Widget Function()> _screenBuilders = [
+  late final List<Widget Function()> _screenBuilders = [
     () => const InvoiceGalleryScreen(),
     () => const ChatScreen(),
-    () => const TransactionListScreen(),
+    () => TransactionListScreen(key: _spendingKey),
     () => const InsightsScreen(),
     () => const ProfileScreen(),
   ];
@@ -49,6 +51,12 @@ class _MainScreenState extends State<MainScreen> {
         _initializedScreens[index] = _screenBuilders[index]();
       }
     });
+
+    // 👈 When tapping into the Spending tab (index 2), refresh currency and transactions
+    if (index == 2) {
+      _spendingKey.currentState?.loadCurrency();
+      _spendingKey.currentState?.loadTransactions();
+    }
   }
 
   @override
@@ -74,32 +82,32 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             _navItem(
               index: 0,
-              icon: "assets/icons/components/invoice.svg",
-              selectedIcon: "assets/icons/components/invoice.svg",
+              icon: "assets/icons/bottom/invoice.svg",
+              selectedIcon: "assets/icons/bottom/invoice_filled.svg",
               label: "Invoices",
             ),
             _navItem(
               index: 1,
-              icon: "assets/icons/chat.svg",
-              selectedIcon: "assets/icons/chat_filled.svg",
+              icon: "assets/icons/bottom/chat.svg",
+              selectedIcon: "assets/icons/bottom/chat_filled.svg",
               label: "Chat",
             ),
             _navItem(
               index: 2,
-              icon: "assets/icons/spending.svg",
-              selectedIcon: "assets/icons/spending_filled.svg",
+              icon: "assets/icons/bottom/spending.svg",
+              selectedIcon: "assets/icons/bottom/spending_filled.svg",
               label: "Spending",
             ),
             _navItem(
               index: 3,
-              icon: "assets/icons/insights.svg",
-              selectedIcon: "assets/icons/insights_filled.svg",
+              icon: "assets/icons/bottom/insights.svg",
+              selectedIcon: "assets/icons/bottom/insights_filled.svg",
               label: "Insights",
             ),
             _navItem(
               index: 4,
-              icon: "assets/icons/profile.svg",
-              selectedIcon: "assets/icons/profile_filled.svg",
+              icon: "assets/icons/bottom/profile.svg",
+              selectedIcon: "assets/icons/bottom/profile_filled.svg",
               label: "Profile",
             ),
           ],

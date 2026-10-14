@@ -35,14 +35,14 @@ class TransactionInputTile extends StatelessWidget {
                       height: 20,
                       fit: BoxFit.contain,
                       colorFilter: ColorFilter.mode(
-                        colors.textSecondary,
+                        colors.textPrimary,
                         BlendMode.srcIn,
                       ),
                     )
                   : Icon(
                       icon,
                       size: 20,
-                      color: colors.textSecondary,
+                      color: colors.textPrimary,
                     ),
             ),
           ),
@@ -53,7 +53,7 @@ class TransactionInputTile extends StatelessWidget {
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w400,
               ),
               decoration: InputDecoration(
                 hintText: hintText,
@@ -63,7 +63,10 @@ class TransactionInputTile extends StatelessWidget {
                 ),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 0, // 👈 ADD THIS LINE
+                ),
               ),
             ),
           ),

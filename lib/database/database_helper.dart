@@ -6,71 +6,66 @@ import '../models/attachment.dart';
 import '../models/message.dart';
 import '../models/sync_queue_item.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:uuid/uuid.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
-
   static Database? _database;
 
   DatabaseHelper._init();
 
   Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
-    }
-
+    if (_database != null) return _database!;
     _database = await _initDB('expilio.db');
     return _database!;
   }
 
   Future<Database> _initDB(String fileName) async {
     String path;
-
     if (kIsWeb) {
-      // In web browsers, sqflite_common_ffi_web uses the filename directly as the IndexedDB store key
       path = fileName;
     } else {
-      // On iOS, Android, and Desktop, use the system databases directory path
       final dbPath = await getDatabasesPath();
       path = join(dbPath, fileName);
     }
 
     return await openDatabase(
       path,
-      version: 11, // Upgraded to v8 for custom categories
+      version: 1, // Reset clean baseline to v1
       onCreate: _createDB,
-      onUpgrade: _upgradeDB,
     );
   }
 
-  Future _createDB(Database db, int version) async {
+  Future<void> _createDB(Database db, int version) async {
+    // 1. Transactions
     await db.execute('''
       CREATE TABLE transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT,
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'USD',
-  exchange_rate REAL NOT NULL DEFAULT 1.0,
-  base_amount REAL NOT NULL,
-  transaction_type TEXT NOT NULL,
-  profile_type TEXT NOT NULL,
-  category TEXT,
-  subcategory TEXT,
-  note TEXT,
-  payment_method TEXT,
-  payment_name TEXT,
-  merchant TEXT,
-  date TEXT NOT NULL,
-  source TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-)
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        exchange_rate REAL NOT NULL DEFAULT 1.0,
+        base_amount REAL NOT NULL,
+        transaction_type TEXT NOT NULL,
+        profile_type TEXT NOT NULL,
+        category TEXT,
+        subcategory TEXT,
+        note TEXT,
+        payment_method TEXT,
+        payment_name TEXT,
+        merchant TEXT,
+        date TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
     ''');
 
+    // 2. Attachments
     await db.execute('''
       CREATE TABLE attachments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        transaction_id INTEGER,
+        transaction_id TEXT,
         file_name TEXT NOT NULL,
         local_path TEXT,
         local_thumbnail_path TEXT,
@@ -85,16 +80,18 @@ class DatabaseHelper {
       )
     ''');
 
+    // 3. Messages / Chat
     await db.execute('''
       CREATE TABLE messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL,
-  message TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  metadata TEXT
-)
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        metadata TEXT
+      )
     ''');
 
+    // 4. Currencies
     await db.execute('''
       CREATE TABLE currencies (
         code TEXT PRIMARY KEY,
@@ -105,27 +102,46 @@ class DatabaseHelper {
       )
     ''');
 
+    // 5. Categories
     await db.execute('''
-  CREATE TABLE categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    subcategories TEXT NOT NULL, -- Stored as JSON string
-    icon_name TEXT,
-    is_custom INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )
-''');
+      CREATE TABLE categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        subcategories TEXT NOT NULL,
+        icon_name TEXT,
+        is_custom INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
 
+    // 6. Users / Offline Session
+    await db.execute('''
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        display_name TEXT,
+        photo_url TEXT,
+        is_logged_in INTEGER DEFAULT 1,
+        storage_used_mb REAL DEFAULT 0.0,
+        storage_limit_mb REAL DEFAULT 500.0,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    // 7. Sync Queue
     await _createSyncQueueTable(db);
+
+    // 8. Seed baseline currencies
+    await _seedDefaultCurrencies(db);
   }
 
-  Future _createSyncQueueTable(Database db) async {
+  Future<void> _createSyncQueueTable(Database db) async {
     await db.execute('''
       CREATE TABLE sync_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_type TEXT NOT NULL,
-        entity_id INTEGER NOT NULL,
+        entity_id TEXT NOT NULL,
         action TEXT NOT NULL,
         payload TEXT,
         created_at TEXT NOT NULL
@@ -133,205 +149,58 @@ class DatabaseHelper {
     ''');
   }
 
-  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute(
-        'ALTER TABLE transactions ADD COLUMN payment_method TEXT',
-      );
-      await db.execute('ALTER TABLE transactions ADD COLUMN payment_name TEXT');
-      await db.execute('ALTER TABLE transactions ADD COLUMN merchant TEXT');
+  Future<void> _seedDefaultCurrencies(Database db) async {
+    final now = DateTime.now().toIso8601String();
+    final defaultCurrencies = [
+      {'code': 'USD', 'name': 'US Dollar', 'symbol': '\$', 'rate_to_base': 1.0, 'updated_at': now},
+      {'code': 'INR', 'name': 'Indian Rupee', 'symbol': '₹', 'rate_to_base': 0.012, 'updated_at': now},
+      {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'rate_to_base': 1.08, 'updated_at': now},
+      {'code': 'GBP', 'name': 'British Pound', 'symbol': '£', 'rate_to_base': 1.27, 'updated_at': now},
+      {'code': 'AED', 'name': 'UAE Dirham', 'symbol': 'د.إ', 'rate_to_base': 0.27, 'updated_at': now},
+      {'code': 'CAD', 'name': 'Canadian Dollar', 'symbol': 'C\$', 'rate_to_base': 0.73, 'updated_at': now},
+      {'code': 'AUD', 'name': 'Australian Dollar', 'symbol': 'A\$', 'rate_to_base': 0.65, 'updated_at': now},
+    ];
+
+    final batch = db.batch();
+    for (var c in defaultCurrencies) {
+      batch.insert('currencies', c, conflictAlgorithm: ConflictAlgorithm.replace);
     }
-
-    if (oldVersion < 3) {
-      await db.execute('''
-        CREATE TABLE attachments (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          transaction_id INTEGER NOT NULL,
-          file_name TEXT NOT NULL,
-          local_path TEXT,
-          cloud_url TEXT,
-          file_type TEXT,
-          is_synced INTEGER DEFAULT 0,
-          is_deleted INTEGER DEFAULT 0,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        )
-      ''');
-    }
-
-    if (oldVersion < 4) {
-      await db.execute('''
-        CREATE TABLE messages (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          role TEXT NOT NULL,
-          message TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        )
-      ''');
-    }
-
-    if (oldVersion < 5) {
-      await db.execute('ALTER TABLE transactions ADD COLUMN subcategory TEXT');
-    }
-
-    if (oldVersion < 6) {
-      await _createSyncQueueTable(db);
-    }
-
-    if (oldVersion < 7) {
-      await db.execute(
-        'ALTER TABLE attachments ADD COLUMN local_thumbnail_path TEXT',
-      );
-      await db.execute(
-        'ALTER TABLE attachments ADD COLUMN cloud_thumbnail_url TEXT',
-      );
-    }
-
-    if (oldVersion < 8) {
-      await db.execute('''
-    CREATE TABLE categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      subcategories TEXT NOT NULL,
-      icon_name TEXT,
-      is_custom INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  ''');
-    }
-
-    if (oldVersion < 9) {
-      await db.execute(
-        "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'",
-      );
-      await db.execute(
-        "ALTER TABLE transactions ADD COLUMN exchange_rate REAL NOT NULL DEFAULT 1.0",
-      );
-      await db.execute("ALTER TABLE transactions ADD COLUMN base_amount REAL");
-
-      // Backfill existing rows so base_amount equals amount
-      await db.execute(
-        "UPDATE transactions SET base_amount = amount WHERE base_amount IS NULL",
-      );
-    }
-
-    if (oldVersion < 10) {
-      await db.execute('''
-        CREATE TABLE currencies (
-          code TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          symbol TEXT NOT NULL,
-          rate_to_base REAL NOT NULL,
-          updated_at TEXT NOT NULL
-        )
-      ''');
-
-      final now = DateTime.now().toIso8601String();
-      final defaultCurrencies = [
-        {
-          'code': 'USD',
-          'name': 'US Dollar',
-          'symbol': '\$',
-          'rate_to_base': 1.0,
-          'updated_at': now,
-        },
-        {
-          'code': 'INR',
-          'name': 'Indian Rupee',
-          'symbol': '₹',
-          'rate_to_base': 0.012,
-          'updated_at': now,
-        },
-        {
-          'code': 'EUR',
-          'name': 'Euro',
-          'symbol': '€',
-          'rate_to_base': 1.08,
-          'updated_at': now,
-        },
-        {
-          'code': 'GBP',
-          'name': 'British Pound',
-          'symbol': '£',
-          'rate_to_base': 1.27,
-          'updated_at': now,
-        },
-        {
-          'code': 'AED',
-          'name': 'UAE Dirham',
-          'symbol': 'د.إ',
-          'rate_to_base': 0.27,
-          'updated_at': now,
-        },
-        {
-          'code': 'CAD',
-          'name': 'Canadian Dollar',
-          'symbol': 'C\$',
-          'rate_to_base': 0.73,
-          'updated_at': now,
-        },
-        {
-          'code': 'AUD',
-          'name': 'Australian Dollar',
-          'symbol': 'A\$',
-          'rate_to_base': 0.65,
-          'updated_at': now,
-        },
-      ];
-
-      for (var c in defaultCurrencies) {
-        await db.insert(
-          'currencies',
-          c,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-    }
-
-    if (oldVersion < 11) {
-      await db.execute('ALTER TABLE messages ADD COLUMN metadata TEXT');
-    }
+    await batch.commit(noResult: true);
   }
 
-  // --- ATOMIC TRANSACTION & ATTACHMENT MUTATIONS WITH SYNC QUEUE ---
+  // --- ATOMIC MUTATIONS & SYNC QUEUE ---
 
-  Future<int> insertTransaction(TransactionModel transaction) async {
+  Future<String> insertTransaction(TransactionModel transaction) async {
     final db = await instance.database;
+    final String id = transaction.id ?? const Uuid().v4();
+    final finalTransaction = transaction.copyWith(id: id);
+
+    print("the next expected transaction id is " + id);
 
     return await db.transaction((txn) async {
-      final id = await txn.insert('transactions', transaction.toMap());
-
+      await txn.insert('transactions', finalTransaction.toMap());
       await _enqueueSyncAction(
         txn,
         entityType: 'transaction',
         entityId: id,
         action: 'CREATE',
-        payload: transaction.copyWith(id: id).toMap(),
+        payload: finalTransaction.toMap(),
       );
-
+      print("the id changed to " + id);
       return id;
     });
   }
 
-  Future<void> clearAllMessages() async {
-  final db = await database;
-  await db.delete('messages'); // Replace 'messages' with your actual messages table name if it's different
-}
-
-  /// Inserts a transaction and its associated attachments inside a single atomic DB transaction
-  Future<int> insertTransactionWithAttachments(
+  Future<String> insertTransactionWithAttachments(
     TransactionModel transaction,
     List<AttachmentModel> attachments,
   ) async {
     final db = await instance.database;
+    final String transId = transaction.id ?? const Uuid().v4();
+    final savedTransaction = transaction.copyWith(id: transId);
 
     return await db.transaction((txn) async {
-      // 1. Insert Transaction
-      final transId = await txn.insert('transactions', transaction.toMap());
-      final savedTransaction = transaction.copyWith(id: transId);
-
-      // 2. Queue Transaction CREATE
+      await txn.insert('transactions', savedTransaction.toMap());
       await _enqueueSyncAction(
         txn,
         entityType: 'transaction',
@@ -340,31 +209,29 @@ class DatabaseHelper {
         payload: savedTransaction.toMap(),
       );
 
-      // 3. Insert and queue each attachment
       for (var attachment in attachments) {
-        final updatedAttachment = attachment.copyWith(transactionId: transId);
-        final attachId = await txn.insert(
-          'attachments',
-          updatedAttachment.toMap(),
-        );
-        final savedAttachment = updatedAttachment.copyWith(id: attachId);
+  final updatedAttachment = attachment.copyWith(transactionId: transId);
+  final attachId = await txn.insert('attachments', updatedAttachment.toMap());
+  final savedAttachment = updatedAttachment.copyWith(id: attachId);
 
-        await _enqueueSyncAction(
-          txn,
-          entityType: 'attachment',
-          entityId: attachId,
-          action: 'CREATE',
-          payload: savedAttachment.toMap(),
-        );
-      }
+  // Inject the parent transaction's userId into the payload map
+  final Map<String, dynamic> payload = savedAttachment.toMap();
+  payload['user_id'] = savedTransaction.userId; // ✅ Injected
 
+  await _enqueueSyncAction(
+    txn,
+    entityType: 'attachment',
+    entityId: attachId.toString(),
+    action: 'CREATE',
+    payload: payload,
+  );
+}
       return transId;
     });
   }
 
   Future<int> updateTransaction(TransactionModel transaction) async {
     final db = await instance.database;
-
     return await db.transaction((txn) async {
       final rows = await txn.update(
         'transactions',
@@ -382,14 +249,12 @@ class DatabaseHelper {
           payload: transaction.toMap(),
         );
       }
-
       return rows;
     });
   }
 
-  Future<int> deleteTransaction(int id) async {
+  Future<int> deleteTransaction(String id) async {
     final db = await instance.database;
-
     return await db.transaction((txn) async {
       final rows = await txn.delete(
         'transactions',
@@ -403,12 +268,11 @@ class DatabaseHelper {
         entityId: id,
         action: 'DELETE',
       );
-
       return rows;
     });
   }
 
-  // --- READ QUERIES WITH ATTACHMENT HYDRATION ---
+  // --- READ QUERIES ---
 
   Future<List<TransactionModel>> getTransactions() async {
     final db = await instance.database;
@@ -416,14 +280,13 @@ class DatabaseHelper {
 
     List<TransactionModel> transactions = [];
     for (var map in result) {
-      final transId = map['id'] as int?;
+      final transId = map['id']?.toString();
       List<AttachmentModel> attachments = [];
       if (transId != null) {
         attachments = await getAttachments(transId);
       }
       transactions.add(TransactionModel.fromMap(map, attachments: attachments));
     }
-
     return transactions;
   }
 
@@ -441,18 +304,31 @@ class DatabaseHelper {
 
     List<TransactionModel> transactions = [];
     for (var map in result) {
-      final transId = map['id'] as int?;
+      final transId = map['id']?.toString();
       List<AttachmentModel> attachments = [];
       if (transId != null) {
         attachments = await getAttachments(transId);
       }
       transactions.add(TransactionModel.fromMap(map, attachments: attachments));
     }
-
     return transactions;
   }
 
-  // --- QUEUE MANAGEMENT FUNCTIONS ---
+  Future<TransactionModel?> getTransactionById(String id) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'transactions',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+
+    if (result.isEmpty) return null;
+    final attachments = await getAttachments(id);
+    return TransactionModel.fromMap(result.first, attachments: attachments);
+  }
+
+  // --- QUEUE MANAGEMENT ---
 
   Future<List<SyncQueueItem>> getPendingSyncItems() async {
     final db = await instance.database;
@@ -465,8 +341,16 @@ class DatabaseHelper {
     return await db.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
   }
 
-  // --- ATTACHMENT MANAGEMENT FUNCTIONS ---
+  Future<int> clearStuckSyncQueueItem(int entityId) async {
+    final db = await instance.database;
+    return await db.delete(
+      'sync_queue',
+      where: 'entity_id = ?',
+      whereArgs: [entityId],
+    );
+  }
 
+  // --- ATTACHMENTS ---
 
   Future<List<Map<String, dynamic>>> getInvoicesWithMetadataRaw() async {
     final db = await instance.database;
@@ -493,39 +377,26 @@ class DatabaseHelper {
     ''');
   }
 
-
   Future<int> insertAttachment(AttachmentModel attachment) async {
     final db = await instance.database;
-
     return await db.transaction((txn) async {
       final id = await txn.insert('attachments', attachment.toMap());
       final savedAttachment = attachment.copyWith(id: id);
 
-      // Only enqueue for remote sync if tied to an existing transaction
-      if (savedAttachment.transactionId != null && savedAttachment.transactionId! > 0) {
+      if (savedAttachment.transactionId != null && savedAttachment.transactionId!.isNotEmpty) {
         await _enqueueSyncAction(
           txn,
           entityType: 'attachment',
-          entityId: id,
+          entityId: id.toString(),
           action: 'CREATE',
           payload: savedAttachment.toMap(),
         );
       }
-
       return id;
     });
   }
 
-  Future<int> clearStuckSyncQueueItem(int entityId) async {
-    final db = await instance.database;
-    return await db.delete(
-      'sync_queue',
-      where: 'entity_id = ?',
-      whereArgs: [entityId],
-    );
-  }
-
-  Future<List<AttachmentModel>> getAttachments(int transactionId) async {
+  Future<List<AttachmentModel>> getAttachments(String transactionId) async {
     final db = await instance.database;
     final result = await db.query(
       'attachments',
@@ -537,27 +408,52 @@ class DatabaseHelper {
   }
 
   Future<int> updateAttachmentSyncStatus({
-  required int id,
-  required String cloudUrl,
-  String? cloudThumbnailUrl, // 👈 Nullable for PDFs without thumbnails
-}) async {
-  final db = await instance.database;
-  return await db.update(
-    'attachments',
-    {
-      'cloud_url': cloudUrl,
-      'cloud_thumbnail_url': cloudThumbnailUrl,
-      'is_synced': 1,
-      'updated_at': DateTime.now().toIso8601String(),
-    },
-    where: 'id = ?',
-    whereArgs: [id],
-  );
-}
+    required int id,
+    required String cloudUrl,
+    String? cloudThumbnailUrl,
+  }) async {
+    final db = await instance.database;
+    return await db.update(
+      'attachments',
+      {
+        'cloud_url': cloudUrl,
+        'cloud_thumbnail_url': cloudThumbnailUrl,
+        'is_synced': 1,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> updateAttachmentLocalPath({
+    required int id,
+    required String localPath,
+  }) async {
+    final db = await instance.database;
+    return await db.update(
+      'attachments',
+      {'local_path': localPath, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> updateAttachmentLocalThumbnailPath({
+    required int id,
+    required String localThumbnailPath,
+  }) async {
+    final db = await instance.database;
+    return await db.update(
+      'attachments',
+      {'local_thumbnail_path': localThumbnailPath, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 
   Future<int> deleteAttachment(int id) async {
     final db = await instance.database;
-
     return await db.transaction((txn) async {
       final rows = await txn.update(
         'attachments',
@@ -573,20 +469,18 @@ class DatabaseHelper {
       await _enqueueSyncAction(
         txn,
         entityType: 'attachment',
-        entityId: id,
+        entityId: id.toString(),
         action: 'DELETE',
       );
-
       return rows;
     });
   }
 
-  // --- OTHER DATABASE FUNCTIONS ---
+  // --- ANALYTICS & SUMMARIES ---
 
   Future<Map<DateTime, double>> getDailyTotalsForMonth(DateTime month) async {
     final db = await instance.database;
-    final String monthStr =
-        "${month.year}-${month.month.toString().padLeft(2, '0')}";
+    final String monthStr = "${month.year}-${month.month.toString().padLeft(2, '0')}";
 
     final List<Map<String, dynamic>> result = await db.rawQuery(
       '''
@@ -607,11 +501,7 @@ class DatabaseHelper {
 
       if (dayStr != null && balance != null) {
         final parsedDate = DateTime.parse(dayStr);
-        final normalizedKey = DateTime(
-          parsedDate.year,
-          parsedDate.month,
-          parsedDate.day,
-        );
+        final normalizedKey = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
         dailyBalances[normalizedKey] = balance;
       }
     }
@@ -684,6 +574,8 @@ class DatabaseHelper {
     return profileMap;
   }
 
+  // --- MESSAGES ---
+
   Future<int> insertMessage(MessageModel message) async {
     final db = await instance.database;
     return await db.insert('messages', message.toMap());
@@ -695,12 +587,110 @@ class DatabaseHelper {
     return result.map((map) => MessageModel.fromMap(map)).toList();
   }
 
-  // --- GENERIC SYNC QUEUE HELPER ---
+  Future<void> clearAllMessages() async {
+    final db = await instance.database;
+    await db.delete('messages');
+  }
+
+  // --- CATEGORIES ---
+
+  Future<List<Map<String, dynamic>>> getCategories() async {
+    final db = await instance.database;
+    return await db.query('categories', orderBy: 'id ASC');
+  }
+
+  Future<int> insertCategory(Map<String, dynamic> categoryMap) async {
+    final db = await instance.database;
+    return await db.transaction((txn) async {
+      final id = await txn.insert('categories', categoryMap);
+      final payload = Map<String, dynamic>.from(categoryMap)..['id'] = id;
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'category',
+        entityId: id.toString(),
+        action: 'CREATE',
+        payload: payload,
+      );
+      return id;
+    });
+  }
+
+  Future<int> updateCategory(int id, Map<String, dynamic> categoryMap) async {
+    final db = await instance.database;
+    return await db.transaction((txn) async {
+      final rows = await txn.update(
+        'categories',
+        categoryMap,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'category',
+        entityId: id.toString(),
+        action: 'UPDATE',
+        payload: categoryMap,
+      );
+      return rows;
+    });
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await instance.database;
+    return await db.transaction((txn) async {
+      final rows = await txn.delete(
+        'categories',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await _enqueueSyncAction(
+        txn,
+        entityType: 'category',
+        entityId: id.toString(),
+        action: 'DELETE',
+      );
+      return rows;
+    });
+  }
+
+  Future<void> seedInitialCategories(List<Map<String, dynamic>> defaultCategories) async {
+    final db = await instance.database;
+    final batch = db.batch();
+    for (var category in defaultCategories) {
+      batch.insert('categories', category, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  // --- CURRENCIES ---
+
+  Future<List<Map<String, dynamic>>> getCurrencies() async {
+    final db = await instance.database;
+    return await db.query('currencies', orderBy: 'code ASC');
+  }
+
+  Future<void> updateCurrencyRate(String code, double rateToBase) async {
+    final db = await instance.database;
+    await db.update(
+      'currencies',
+      {
+        'rate_to_base': rateToBase,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'code = ?',
+      whereArgs: [code],
+    );
+  }
+
+  // --- SYNC QUEUE HELPER ---
 
   Future<void> _enqueueSyncAction(
     DatabaseExecutor txn, {
     String entityType = 'transaction',
-    required int entityId,
+    required String entityId,
     required String action,
     Map<String, dynamic>? payload,
   }) async {
@@ -737,11 +727,7 @@ class DatabaseHelper {
       }
     } else if (action == 'DELETE') {
       if (existingAction == 'CREATE') {
-        await txn.delete(
-          'sync_queue',
-          where: 'id = ?',
-          whereArgs: [existingId],
-        );
+        await txn.delete('sync_queue', where: 'id = ?', whereArgs: [existingId]);
       } else if (existingAction == 'UPDATE') {
         await txn.update(
           'sync_queue',
@@ -757,164 +743,124 @@ class DatabaseHelper {
     }
   }
 
-  // --- CATEGORY CRUD OPERATIONS ---
+  // --- USER SESSION (OFFLINE AUTH) ---
 
-  Future<List<Map<String, dynamic>>> getCategories() async {
-    final db = await instance.database;
-    return await db.query('categories', orderBy: 'id ASC');
-  }
-
-  Future<int> insertCategory(Map<String, dynamic> categoryMap) async {
-    final db = await instance.database;
-    return await db.transaction((txn) async {
-      final id = await txn.insert('categories', categoryMap);
-      final payload = Map<String, dynamic>.from(categoryMap)..['id'] = id;
-
-      await _enqueueSyncAction(
-        txn,
-        entityType: 'category',
-        entityId: id,
-        action: 'CREATE',
-        payload: payload,
-      );
-      return id;
-    });
-  }
-
-  Future<int> updateCategory(int id, Map<String, dynamic> categoryMap) async {
-    final db = await instance.database;
-    return await db.transaction((txn) async {
-      final rows = await txn.update(
-        'categories',
-        categoryMap,
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-
-      await _enqueueSyncAction(
-        txn,
-        entityType: 'category',
-        entityId: id,
-        action: 'UPDATE',
-        payload: categoryMap,
-      );
-      return rows;
-    });
-  }
-
-  Future<int> deleteCategory(int id) async {
-    final db = await instance.database;
-    return await db.transaction((txn) async {
-      final rows = await txn.delete(
-        'categories',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-
-      await _enqueueSyncAction(
-        txn,
-        entityType: 'category',
-        entityId: id,
-        action: 'DELETE',
-      );
-      return rows;
-    });
-  }
-
-  Future<void> seedInitialCategories(
-    List<Map<String, dynamic>> defaultCategories,
-  ) async {
-    final db = await instance.database;
-    final batch = db.batch();
-    for (var category in defaultCategories) {
-      batch.insert(
-        'categories',
-        category,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
-
-  // --- CURRENCY CRUD OPERATIONS ---
-
-  Future<List<Map<String, dynamic>>> getCurrencies() async {
-    final db = await instance.database;
-    return await db.query('currencies', orderBy: 'code ASC');
-  }
-
-  Future<void> updateCurrencyRate(String code, double rateToBase) async {
-    final db = await instance.database;
-    await db.update(
-      'currencies',
-      {
-        'rate_to_base': rateToBase,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'code = ?',
-      whereArgs: [code],
-    );
-  }
-
-  Future<void> seedInitialCurrencies(
-    List<Map<String, dynamic>> defaultCurrencies,
-  ) async {
-    final db = await instance.database;
-    final batch = db.batch();
-    for (var currency in defaultCurrencies) {
-      batch.insert(
-        'currencies',
-        currency,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
-
-  Future<int> updateAttachmentLocalPath({
-    required int id,
-    required String localPath,
+  Future<void> saveUserSession({
+    required String uid,
+    String? email,
+    String? displayName,
+    String? photoUrl,
+    double? storageUsedMb,
+    double? storageLimitMb,
   }) async {
     final db = await instance.database;
-    return await db.update(
-      'attachments',
+    await db.insert(
+      'users',
       {
-        'local_path': localPath,
+        'id': uid,
+        'email': email,
+        'display_name': displayName,
+        'photo_url': photoUrl,
+        'is_logged_in': 1,
+        if (storageUsedMb != null) 'storage_used_mb': storageUsedMb,
+        if (storageLimitMb != null) 'storage_limit_mb': storageLimitMb,
         'updated_at': DateTime.now().toIso8601String(),
       },
-      where: 'id = ?',
-      whereArgs: [id],
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  Future<int> updateAttachmentLocalThumbnailPath({
-    required int id,
-    required String localThumbnailPath,
+  Future<void> updateUserStorageStats({
+    required String uid,
+    required double storageUsedMb,
+    double? storageLimitMb,
   }) async {
     final db = await instance.database;
-    return await db.update(
-      'attachments',
-      {
-        'local_thumbnail_path': localThumbnailPath,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final Map<String, dynamic> values = {
+      'storage_used_mb': storageUsedMb,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    if (storageLimitMb != null) {
+      values['storage_limit_mb'] = storageLimitMb;
+    }
+
+    await db.update('users', values, where: 'id = ?', whereArgs: [uid]);
   }
 
-  Future<TransactionModel?> getTransactionById(int id) async {
+  Future<Map<String, dynamic>?> getActiveUserSession() async {
     final db = await instance.database;
-    final result = await db.query(
-      'transactions',
-      where: 'id = ?',
-      whereArgs: [id],
+    final results = await db.query(
+      'users',
+      where: 'is_logged_in = ?',
+      whereArgs: [1],
       limit: 1,
     );
-
-    if (result.isEmpty) return null;
-
-    final attachments = await getAttachments(id);
-    return TransactionModel.fromMap(result.first, attachments: attachments);
+    if (results.isNotEmpty) return results.first;
+    return null;
   }
+
+  Future<void> clearUserSession() async {
+    final db = await instance.database;
+    await db.delete('users');
+  }
+
+  Future<void> deleteEntireDatabase() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+
+    String path;
+    if (kIsWeb) {
+      path = 'expilio.db';
+    } else {
+      final dbPath = await getDatabasesPath();
+      path = join(dbPath, 'expilio.db');
+    }
+
+    await deleteDatabase(path);
+  }
+
+  /// Bulk insert/update transactions and attachments from the cloud without triggering sync_queue entries
+  Future<void> hydrateDatabaseFromRemote({
+    required List<TransactionModel> transactions,
+    required List<AttachmentModel> attachments,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+
+      for (final tx in transactions) {
+        batch.insert(
+          'transactions',
+          tx.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      for (final att in attachments) {
+        batch.insert(
+          'attachments',
+          att.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Clears user-specific tables upon logout so new sessions start clean
+  Future<void> clearAllUserData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('transactions');
+      await txn.delete('attachments');
+      await txn.delete('sync_queue');
+      await txn.delete('messages');
+      await txn.delete('users');
+    });
+  }
+
 }

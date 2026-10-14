@@ -1,13 +1,14 @@
 import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart'; // 👈 ADD THIS IMPORT
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 
 class AppLineChart extends StatefulWidget {
-  final Map<String, double> data; // Key: X label | Value: Amount
-  final Color? lineColor;
+  /// Key: X label | Value: Pre-converted display amount in active currency
+  final Map<String, double> data;
   final String currencySymbol;
+  final Color? lineColor;
   final double height;
   final bool showCurvedLine;
   final Duration animationDuration;
@@ -17,8 +18,8 @@ class AppLineChart extends StatefulWidget {
   const AppLineChart({
     super.key,
     required this.data,
+    required this.currencySymbol, // 👈 Required: makes currency explicit and reusable
     this.lineColor,
-    this.currencySymbol = "₹",
     this.height = 220,
     this.showCurvedLine = true,
     this.animationDuration = const Duration(milliseconds: 1400),
@@ -49,7 +50,6 @@ class _AppLineChartState extends State<AppLineChart>
     _controller.forward();
   }
 
-  // WITH THIS:
   @override
   void didUpdateWidget(covariant AppLineChart oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -94,7 +94,7 @@ class _AppLineChartState extends State<AppLineChart>
               final fraction = currentXProgress - (i - 1);
               final interpolatedY =
                   values[i - 1] + (values[i] - values[i - 1]) * fraction;
-              
+
               // Clamps intermediate edge to prevent drawing below the starting base value
               final clampedY = values[i] > values[i - 1]
                   ? math.max(values[i - 1], interpolatedY)
@@ -196,12 +196,12 @@ class _AppLineChartState extends State<AppLineChart>
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
                   LineChartBarData(
-                    spots: currentSpots.isEmpty ? [const FlSpot(0, 0)] : currentSpots,
+                    spots: currentSpots.isEmpty
+                        ? [const FlSpot(0, 0)]
+                        : currentSpots,
                     isCurved: widget.showCurvedLine,
-                    // Reduced from 0.35 to 0.18 to prevent horizontal handle dip
                     curveSmoothness: 0.18,
                     preventCurveOverShooting: true,
-                    // Adjusted threshold so fl_chart monotonic clamping engages cleanly
                     preventCurveOvershootingThreshold: 2.0,
                     color: activeColor,
                     barWidth: 3,

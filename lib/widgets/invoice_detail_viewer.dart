@@ -130,13 +130,11 @@ class _InvoiceDetailViewerState extends State<InvoiceDetailViewer> {
   }
 
   Future<void> _navigateToTransaction() async {
-    if (widget.transactionId == null) return;
-
-    final int? parsedId = int.tryParse(widget.transactionId!);
-    if (parsedId == null) return;
+    final String? transactionId = widget.transactionId;
+    if (transactionId == null || transactionId.isEmpty) return;
 
     try {
-      final tx = await DatabaseHelper.instance.getTransactionById(parsedId);
+      final tx = await DatabaseHelper.instance.getTransactionById(transactionId);
       if (!mounted) return;
 
       if (tx == null) {
@@ -170,7 +168,8 @@ class _InvoiceDetailViewerState extends State<InvoiceDetailViewer> {
       );
     }
   }
-
+  
+  
   Widget _buildBody(AppColorScheme colors) {
     final fileNameLower = widget.attachment.fileName.toLowerCase();
     final isPdf = fileNameLower.endsWith('.pdf');
@@ -385,8 +384,8 @@ class _InvoiceDetailViewerState extends State<InvoiceDetailViewer> {
                         curve: Curves.easeInOut,
                         decoration: BoxDecoration(
                           color: _isViewTxHovered
-                              ? colors.purpleLight
-                              : colors.purple,
+                              ? colors.heroLight
+                              : colors.hero,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: ElevatedButton.icon(

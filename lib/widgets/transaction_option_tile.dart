@@ -85,7 +85,7 @@ class _TransactionOptionTileState extends State<TransactionOptionTile> {
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),

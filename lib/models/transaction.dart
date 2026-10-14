@@ -1,7 +1,7 @@
 import 'attachment.dart';
 
 class TransactionModel {
-  final int? id;
+  final String? id;
   final String userId;
   final double amount;
   final String currency;
@@ -44,7 +44,7 @@ class TransactionModel {
   }) : baseAmount = baseAmount ?? (amount * (exchangeRate != 0.0 ? exchangeRate : 1.0));
 
   TransactionModel copyWith({
-    int? id,
+    String? id,
     String? userId,
     double? amount,
     String? currency,
@@ -116,10 +116,13 @@ class TransactionModel {
   }) {
     final double rawAmount = (map['amount'] as num).toDouble();
     final double rate = (map['exchange_rate'] as num?)?.toDouble() ?? 1.0;
-    final double computedBase = (map['base_amount'] as num?)?.toDouble() ?? (rawAmount * rate);
+    final double rawBase = (map['base_amount'] as num?)?.toDouble() ?? 0.0;
+    final double computedBase = (rawBase > 0)
+        ? rawBase
+        : (rawAmount * (rate > 0 ? rate : 1.0));
 
     return TransactionModel(
-      id: map['id'] as int?,
+      id: map['id']?.toString(),
       userId: map['user_id'] as String,
       amount: rawAmount,
       currency: map['currency'] as String? ?? 'USD',

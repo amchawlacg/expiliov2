@@ -1,6 +1,6 @@
 class AttachmentModel {
   final int? id;
-  final int? transactionId; // Made optional for when creating an attachment before transaction ID is assigned
+  final String? transactionId; // Made optional for when creating an attachment before transaction ID is assigned
   final String fileName;
   final String? localPath;
   final String? localThumbnailPath; // Added for local low-res thumbnails
@@ -47,7 +47,7 @@ class AttachmentModel {
   factory AttachmentModel.fromMap(Map<String, dynamic> map) {
     return AttachmentModel(
       id: map['id'] as int?,
-      transactionId: map['transaction_id'] as int?,
+      transactionId: map['transaction_id'] as String?,
       fileName: map['file_name'] as String,
       localPath: map['local_path'] as String?,
       localThumbnailPath: map['local_thumbnail_path'] as String?,
@@ -63,7 +63,7 @@ class AttachmentModel {
 
   AttachmentModel copyWith({
     int? id,
-    int? transactionId,
+    String? transactionId,
     String? fileName,
     String? localPath,
     String? localThumbnailPath,

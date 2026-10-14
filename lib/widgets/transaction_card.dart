@@ -2,17 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart'; // 👈 Added flutter_svg
 import '../models/transaction.dart';
 import '../constants/app_colors.dart';
+import '../constants/currency_constants.dart'; // Adjust path if needed
 
 class TransactionCard extends StatefulWidget {
   final TransactionModel transaction;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final String baseCurrency;
+  final double currencyRate;
 
   const TransactionCard({
     super.key,
     required this.transaction,
     required this.onTap,
     required this.onDelete,
+    this.baseCurrency = 'USD',
+    this.currencyRate = 1.0,
   });
 
   @override
@@ -21,16 +26,6 @@ class TransactionCard extends StatefulWidget {
 
 class _TransactionCardState extends State<TransactionCard> {
   bool isHovering = false;
-
-  static const Map<String, String> currencySymbols = {
-    "USD": "\$",
-    "INR": "₹",
-    "EUR": "€",
-    "GBP": "£",
-    "AED": "د.إ",
-    "CAD": "C\$",
-    "AUD": "A\$",
-  };
 
   Color _getAmountColor(BuildContext context, String type) {
     final colors = context.colors;
@@ -47,17 +42,23 @@ class _TransactionCardState extends State<TransactionCard> {
 
   String _getAmountText(TransactionModel transaction) {
     final type = transaction.transactionType.toLowerCase();
-    final symbol = currencySymbols[transaction.currency] ?? transaction.currency;
-    final formattedAmount = transaction.amount.toStringAsFixed(
-      transaction.amount.truncateToDouble() == transaction.amount ? 0 : 2,
+    final baseSymbol = CurrencyConstants.getSymbol(widget.baseCurrency);
+
+    // Convert USD base to the currently viewed currency
+    final double convertedAmount = widget.currencyRate > 0
+        ? transaction.baseAmount / widget.currencyRate
+        : transaction.baseAmount;
+
+    final formattedBase = convertedAmount.toStringAsFixed(
+      convertedAmount.truncateToDouble() == convertedAmount ? 0 : 2,
     );
 
     if (type == 'income') {
-      return "+$symbol$formattedAmount";
+      return "+$baseSymbol$formattedBase";
     } else if (type == 'expense') {
-      return "-$symbol$formattedAmount";
+      return "-$baseSymbol$formattedBase";
     } else {
-      return "⇄ $symbol$formattedAmount";
+      return "⇄ $baseSymbol$formattedBase";
     }
   }
 
@@ -93,7 +94,7 @@ class _TransactionCardState extends State<TransactionCard> {
     return '$baseCat/other.svg';
   }
 
-@override
+  @override
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
     final colors = context.colors;
@@ -128,19 +129,16 @@ class _TransactionCardState extends State<TransactionCard> {
           child: Row(
             children: [
               // WITH THIS:
-SvgPicture.asset(
-  _getCategoryIconPath(
-    transaction.category,
-    transaction.subCategory,
-  ),
-  width: 24,
-  height: 24,
-  fit: BoxFit.contain,
-  colorFilter: ColorFilter.mode(
-    categoryColor,
-    BlendMode.srcIn,
-  ),
-),
+              SvgPicture.asset(
+                _getCategoryIconPath(
+                  transaction.category,
+                  transaction.subCategory,
+                ),
+                width: 24,
+                height: 24,
+                fit: BoxFit.contain,
+                colorFilter: ColorFilter.mode(categoryColor, BlendMode.srcIn),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -214,14 +212,15 @@ SvgPicture.asset(
                       fontSize: 13,
                     ),
                   ),
-                  if (transaction.currency.toUpperCase() != "USD") ...[
+                  if (transaction.currency.toUpperCase() !=
+                      widget.baseCurrency.toUpperCase()) ...[
                     const SizedBox(height: 2),
                     Text(
-                      "≈ \$${transaction.baseAmount.toStringAsFixed(2)}",
+                      "(${CurrencyConstants.getSymbol(transaction.currency)}${transaction.amount.toStringAsFixed(transaction.amount.truncateToDouble() == transaction.amount ? 0 : 2)})",
                       style: TextStyle(
-                        color: colors.textSecondary.withOpacity(0.6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                        color: colors.textSecondary.withOpacity(0.65),
+                        fontSize: 10,
+                        fontWeight: FontWeight.normal,
                       ),
                     ),
                   ],
@@ -233,6 +232,7 @@ SvgPicture.asset(
       ),
     );
   }
+
   // Helper parsing methods
   String _getMonthName(int month) {
     const months = [

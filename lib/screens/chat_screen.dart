@@ -29,7 +29,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController messageController = TextEditingController();
   final ScrollController scrollController = ScrollController();
   final FocusNode _inputFocusNode = FocusNode();
-  String? _failedMessageText;
   // Tracks message indices whose transaction card lists are fully expanded
   final Set<int> _expandedTransactionGroups = {};
 
@@ -123,6 +122,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         setState(() {
           _pendingAttachment = model;
+          _isAttachHovered = false;
         });
       }
     } catch (e) {
@@ -286,51 +286,62 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> sendMessage({String? retryText}) async {
-    // Blocks rapid repeated taps while a request is in-flight
+  Future<void> sendMessage({MessageModel? retryMessage}) async {
     if (isSending) return;
 
-    final text = retryText ?? messageController.text.trim();
-    if (text.isEmpty) return;
+    String text = retryMessage != null
+        ? retryMessage.message
+        : messageController.text.trim();
+    final attachmentToForward = _pendingAttachment;
 
-    final attachmentToForward = _pendingAttachment; // 👈 ADD THIS
+    // Allow dispatch if there is text OR an attachment
+    if (text.isEmpty && attachmentToForward == null) return;
+    if (text.isEmpty && attachmentToForward != null) {
+      text = "Scan receipt";
+    }
 
-    // Only clear controller and add a bubble if this is a fresh message
-    if (retryText == null) {
+    if (retryMessage == null) {
       messageController.clear();
       final userMessage = MessageModel(
         role: "user",
         message: text,
         createdAt: DateTime.now(),
+        status: 'sent',
       );
       setState(() {
         messages.add(userMessage);
-        _pendingAttachment =
-            null; // 👈 Clears the attachment when message is dispatched
+        _pendingAttachment = null;
       });
       _scrollToBottom();
+    } else {
+      // If retrying, optimistically reset status in the UI
+      setState(() {
+        final idx = messages.indexOf(retryMessage);
+        if (idx != -1) {
+          messages[idx] = retryMessage.copyWith(status: 'sent');
+        }
+      });
     }
 
     setState(() {
-      _failedMessageText = null;
       isSending = true;
     });
 
-    // Intercept simple greetings locally
     final clean = text.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
     final isGreeting = clean == "hi" || clean == "hello" || clean == "hey";
 
     if (isGreeting) {
       await Future.delayed(const Duration(milliseconds: 250));
       if (mounted) {
+        final botGreeting = MessageModel(
+          role: "assistant",
+          message: "Hi! How can I help you manage your finances today?",
+          createdAt: DateTime.now(),
+          status: 'sent',
+        );
+        await DatabaseHelper.instance.insertMessage(botGreeting);
         setState(() {
-          messages.add(
-            MessageModel(
-              role: "assistant",
-              message: "Hi! How can I help you manage your finances today?",
-              createdAt: DateTime.now(),
-            ),
-          );
+          messages.add(botGreeting);
           isSending = false;
         });
         _scrollToBottom();
@@ -339,7 +350,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     try {
-      final result = await chatService.sendMessage(text);
+      final result = await chatService.sendMessage(
+        text,
+        existingFailedMessageId: retryMessage?.id,
+        attachment: attachmentToForward,
+      );
 
       final freshMessages = await chatService.getMessages();
       if (freshMessages.isNotEmpty && mounted) {
@@ -350,6 +365,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _scrollToBottom();
 
       if (result?.draftTransaction != null && mounted) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        if (!mounted) return;
+
         final bool? didSave = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
@@ -366,8 +384,10 @@ class _ChatScreenState extends State<ChatScreen> {
           final draft = result!.draftTransaction!;
           final confirmMessage = MessageModel(
             role: "assistant",
-            message: "Recorded ${draft.currency} ${draft.amount.toStringAsFixed(2)} for ${draft.category}.",
+            message:
+                "Recorded ${draft.currency} ${draft.amount.toStringAsFixed(2)} for ${draft.category}.",
             createdAt: DateTime.now(),
+            status: 'sent',
           );
           await DatabaseHelper.instance.insertMessage(confirmMessage);
           await loadMessages();
@@ -375,11 +395,13 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       debugPrint("Error sending message: $e");
-      if (mounted) {
+      if (mounted && attachmentToForward != null) {
+        // Restore attachment so it's not lost on error
         setState(() {
-          _failedMessageText = text;
+          _pendingAttachment = attachmentToForward;
         });
       }
+      await loadMessages();
     } finally {
       if (mounted) {
         setState(() {
@@ -537,8 +559,15 @@ class _ChatScreenState extends State<ChatScreen> {
                             );
                           }
 
+                          // 🛡️ Safe guard against index out of range
+                          if (index >= messages.length) {
+                            return const SizedBox.shrink();
+                          }
+
                           final message = messages[index];
                           final isUser = message.role == "user";
+                          final isFailed = message.status == 'failed';
+                          final isLastMessage = index == messages.length - 1;
                           final isExpanded = _expandedIndices.contains(index);
 
                           return Column(
@@ -735,10 +764,45 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                               ),
 
-                              // Retry button anchored directly beneath failed user message
+                              // Permanent "Not delivered" badge on any failed user message
+                              if (isUser && isFailed)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    right: 14,
+                                    top: 2,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline_rounded,
+                                          size: 13,
+                                          color: Colors.redAccent.withOpacity(
+                                            0.85,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          "Not delivered",
+                                          style: TextStyle(
+                                            color: Colors.redAccent.withOpacity(
+                                              0.85,
+                                            ),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                              // Retry pill: ONLY rendered if the failed message is still the last message
                               if (isUser &&
-                                  index == messages.length - 1 &&
-                                  _failedMessageText != null &&
+                                  isLastMessage &&
+                                  isFailed &&
                                   !isSending)
                                 Padding(
                                   padding: const EdgeInsets.only(
@@ -750,9 +814,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     alignment: Alignment.centerRight,
                                     child: GestureDetector(
                                       behavior: HitTestBehavior.opaque,
-                                      onTap: () => sendMessage(
-                                        retryText: _failedMessageText,
-                                      ),
+                                      onTap: () =>
+                                          sendMessage(retryMessage: message),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 10,
@@ -778,7 +841,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                             ),
                                             SizedBox(width: 4),
                                             Text(
-                                              "Couldn't send. Tap to retry",
+                                              "Tap to retry",
                                               style: TextStyle(
                                                 color: Colors.redAccent,
                                                 fontSize: 12,
@@ -874,9 +937,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                                           ? "Show less"
                                                           : "+ ${txs.length - 4} more transactions",
                                                       style: TextStyle(
-                                                        color: context
-                                                            .colors
-                                                            .purple,
+                                                        color:
+                                                            context.colors.hero,
                                                         fontSize: 12,
                                                         fontWeight:
                                                             FontWeight.w600,
@@ -891,7 +953,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                                                 .keyboard_arrow_down_rounded,
                                                       size: 16,
                                                       color:
-                                                          context.colors.purple,
+                                                          context.colors.hero,
                                                     ),
                                                   ],
                                                 ),
@@ -952,6 +1014,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                         (constraints.maxWidth * 0.60) ||
                                     messageController.text.contains('\n')));
 
+                        final bool canSend =
+                            !isSending &&
+                            (messageController.text.trim().isNotEmpty ||
+                                _pendingAttachment != null);
+
                         // Action buttons row (Attachment + Send)
                         final actionButtons = Row(
                           mainAxisSize: MainAxisSize.min,
@@ -967,10 +1034,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   setState(() => _isAttachHovered = false),
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
-                                onTap:
-                                    _pickAttachment, // 👈 Hooked to single-file picker
+                                onTap: _pickAttachment,
                                 child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
+                                  duration: const Duration(milliseconds: 200),
                                   margin: const EdgeInsets.symmetric(
                                     horizontal: 4,
                                   ),
@@ -986,9 +1052,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                     shape: BoxShape.circle,
                                   ),
                                   child: SvgPicture.asset(
-                                    'assets/icons/components/add_outline.svg',
-                                    width: 18,
-                                    height: 18,
+                                    'assets/icons/components/add.svg',
+                                    width: 32,
+                                    height: 32,
                                     colorFilter: ColorFilter.mode(
                                       isSending
                                           ? context.colors.textSecondary
@@ -1003,16 +1069,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
                             // Send Button
                             MouseRegion(
-                              cursor: isSending
-                                  ? SystemMouseCursors.basic
-                                  : SystemMouseCursors.click,
+                              cursor: canSend
+                                  ? SystemMouseCursors.click
+                                  : SystemMouseCursors.basic,
                               onEnter: (_) =>
                                   setState(() => _isSendHovered = true),
                               onExit: (_) =>
                                   setState(() => _isSendHovered = false),
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
-                                onTap: isSending ? null : sendMessage,
+                                onTap: canSend ? () => sendMessage() : null,
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(
                                     horizontal: 4,
@@ -1021,12 +1087,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                     duration: const Duration(milliseconds: 200),
                                     curve: Curves.easeInOut,
                                     tween: ColorTween(
-                                      end: isSending
+                                      end: !canSend
                                           ? context.colors.textSecondary
-                                                .withValues(alpha: 0.4)
+                                                .withValues(alpha: 0.3)
                                           : (_isSendHovered
-                                                ? context.colors.purpleLight
-                                                : context.colors.purple),
+                                                ? context.colors.heroLight
+                                                : context.colors.hero),
                                     ),
                                     builder: (context, color, child) {
                                       return SvgPicture.asset(
@@ -1034,7 +1100,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         width: 34,
                                         height: 34,
                                         colorFilter: ColorFilter.mode(
-                                          color ?? context.colors.purple,
+                                          color ?? context.colors.hero,
                                           BlendMode.srcIn,
                                         ),
                                       );
@@ -1045,7 +1111,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           ],
                         );
-
                         // Attachment preview thumbnail with a close button
                         Widget? thumbnailPreview;
                         if (_pendingAttachment != null) {
@@ -1090,12 +1155,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                       child: AnimatedScale(
                                         scale: _isCloseHovered ? 1.1 : 1.0,
                                         duration: const Duration(
-                                          milliseconds: 150,
+                                          milliseconds: 200,
                                         ),
                                         curve: Curves.easeOutCubic,
                                         child: AnimatedContainer(
                                           duration: const Duration(
-                                            milliseconds: 150,
+                                            milliseconds: 200,
                                           ),
                                           width: 18,
                                           height: 18,

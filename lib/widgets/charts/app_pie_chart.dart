@@ -1,30 +1,34 @@
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart'; // 👈 ADD THIS IMPORT
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 
 class AppPieChart extends StatefulWidget {
+  /// Map of category labels to pre-converted display values in the active currency
   final Map<String, double> data;
+
+  /// Total sum in the active currency (pre-converted)
   final double totalAmount;
+
   final String centerLabel;
   final String currencySymbol;
   final List<Color>? customColors;
   final Map<String, Color>? colorMap;
   final Duration animationDuration;
   final bool showCategoryList;
-  final EdgeInsetsGeometry padding; // 👈 Allows manual control of outer padding/margin
+  final EdgeInsetsGeometry padding;
 
   const AppPieChart({
     super.key,
     required this.data,
     required this.totalAmount,
+    required this.currencySymbol, // 👈 Required: makes currency explicit and reusable
     this.centerLabel = "Total",
-    this.currencySymbol = "₹",
     this.customColors,
     this.colorMap,
     this.animationDuration = const Duration(milliseconds: 1500),
     this.showCategoryList = true,
-    this.padding = EdgeInsets.zero, // Default: zero padding
+    this.padding = EdgeInsets.zero,
   });
 
   @override
@@ -64,7 +68,6 @@ class _AppPieChartState extends State<AppPieChart>
     _controller.forward();
   }
 
-  // WITH THIS:
   @override
   void didUpdateWidget(covariant AppPieChart oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -106,7 +109,7 @@ class _AppPieChartState extends State<AppPieChart>
     const double chartDiameter = (centerRadius + maxSliceRadius) * 2; // 187px
 
     return Padding(
-      padding: widget.padding, // 👈 Outer manual padding
+      padding: widget.padding,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -189,7 +192,7 @@ class _AppPieChartState extends State<AppPieChart>
                   : "${widget.currencySymbol}${(widget.totalAmount * _animation.value).toStringAsFixed(0)}";
 
               return SizedBox(
-                height: chartDiameter, // 👈 Snugs tight to 187px, removing the vertical dead zone
+                height: chartDiameter,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
@@ -358,4 +361,4 @@ class _AppPieChartState extends State<AppPieChart>
       ),
     );
   }
-}                                                                                         
+}

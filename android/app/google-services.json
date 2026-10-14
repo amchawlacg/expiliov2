@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "7609957557",
+    "project_id": "expillio-app-12859",
+    "storage_bucket": "expillio-app-12859.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:7609957557:android:af66baae37de832f2f52fc",
+        "android_client_info": {
+          "package_name": "com.example.expilio_v2"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "7609957557-6c2inj8o2cm4ph0t65f2ak14qq04e0s4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhle2XM0MdEuCF2w9kA08vgzieoK3sDPs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "7609957557-6c2inj8o2cm4ph0t65f2ak14qq04e0s4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "7609957557-kocd9o7tf7e4r2bqrvr2ndocoh2kp6a5.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.expilioV2"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

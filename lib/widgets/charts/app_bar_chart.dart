@@ -4,19 +4,20 @@ import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 
 class AppBarChart extends StatefulWidget {
-  final Map<String, double> data; // Key: "Mon", "Tue" etc. | Value: Amount
+  /// Key: "Mon", "Tue" etc. | Value: Final display amount in the active currency
+  final Map<String, double> data;
+  final String currencySymbol;
   final Color? barColor;
   final Color? touchedBarColor;
-  final String currencySymbol;
   final double height;
   final Duration animationDuration;
 
   const AppBarChart({
     super.key,
     required this.data,
+    required this.currencySymbol, // 👈 Required: makes currency explicit
     this.barColor,
     this.touchedBarColor,
-    this.currencySymbol = "₹",
     this.height = 220,
     this.animationDuration = const Duration(milliseconds: 1200),
   });
@@ -51,6 +52,12 @@ class _AppBarChartState extends State<AppBarChart>
     if (!mapEquals(oldWidget.data, widget.data)) {
       _controller.forward(from: 0.0);
     }
+  }
+
+  @override
+  void disposeWidget() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

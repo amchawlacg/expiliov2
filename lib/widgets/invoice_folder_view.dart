@@ -150,7 +150,7 @@ class _InvoiceFolderViewState extends State<InvoiceFolderView> {
       child: Text(
         label,
         style: TextStyle(
-          color: isLast ? colors.purple : colors.textSecondary,
+          color: isLast ? colors.hero : colors.textSecondary,
           fontWeight: isLast ? FontWeight.bold : FontWeight.w500,
           fontSize: 13,
         ),
@@ -228,7 +228,7 @@ class _InvoiceFolderViewState extends State<InvoiceFolderView> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.folder_rounded, size: 46, color: colors.purple),
+                Icon(Icons.folder_rounded, size: 46, color: colors.hero),
                 const SizedBox(height: 8),
                 Text(
                   item.title,

@@ -8,6 +8,12 @@ import '../widgets/charts/app_pie_chart.dart';
 import '../widgets/charts/app_bar_chart.dart';
 import '../widgets/charts/app_line_chart.dart';
 
+import '../services/preference_service.dart';
+import '../constants/currency_constants.dart';
+import '../database/database_helper.dart';
+
+import '../services/sync_service.dart';
+
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key});
 
@@ -27,6 +33,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
   DateTime? customFromDate;
   DateTime? customToDate;
 
+  String activeCurrencyCode = "USD";
+  String activeCurrencySymbol = "\$";
+  double activeCurrencyRate = 1.0;
+
+  bool _isRangeDropdownHovered = false;
   // Active breakdown tab for the pie chart: "expense" or "income"
   String activeBreakdownTab = "expense";
 
@@ -67,7 +78,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
   void initState() {
     super.initState();
     _initControllers();
+    loadCurrency();
     loadTransactions();
+
+    SyncService.onDataChanged.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (mounted) {
+      loadCurrency();
+      loadTransactions();
+    }
   }
 
   void _initControllers() {
@@ -91,10 +112,52 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   @override
   void dispose() {
+    SyncService.onDataChanged.removeListener(_onDataChanged);
     _dayPageController?.dispose();
     _monthPageController?.dispose();
     _yearPageController?.dispose();
     super.dispose();
+  }
+
+  double _toDisplayAmount(TransactionModel t) {
+    if (activeCurrencyRate <= 0) return t.baseAmount;
+    return t.baseAmount / activeCurrencyRate;
+  }
+
+  Future<void> loadCurrency() async {
+    final rawCurrency = await PreferencesService.getBaseCurrency();
+    final code = rawCurrency.split(' ').first.trim();
+    if (code.isEmpty) return;
+
+    final defaultSymbol = CurrencyConstants.getSymbol(code);
+    final defaultRate = CurrencyConstants.getDefaultExchangeRate(code);
+
+    final db = await DatabaseHelper.instance.database;
+    final currencyData = await db.query(
+      'currencies',
+      where: 'code = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+
+    if (!mounted) return;
+
+    if (currencyData.isNotEmpty) {
+      setState(() {
+        activeCurrencyCode = code;
+        activeCurrencySymbol =
+            currencyData.first['symbol'] as String? ?? defaultSymbol;
+        activeCurrencyRate =
+            (currencyData.first['rate_to_base'] as num?)?.toDouble() ??
+            defaultRate;
+      });
+    } else {
+      setState(() {
+        activeCurrencyCode = code;
+        activeCurrencySymbol = defaultSymbol;
+        activeCurrencyRate = defaultRate;
+      });
+    }
   }
 
   Future<void> loadTransactions() async {
@@ -182,10 +245,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     for (final t in filteredTransactions) {
       final type = t.transactionType.trim().toLowerCase();
+      final displayVal = _toDisplayAmount(t);
       if (type == "income") {
-        income += t.amount;
+        income += displayVal;
       } else if (type == "expense") {
-        expense += t.amount;
+        expense += displayVal;
       }
     }
 
@@ -201,7 +265,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         final cat = (category != null && category.trim().isNotEmpty)
             ? category.trim()
             : "Uncategorized";
-        map[cat] = (map[cat] ?? 0.0) + t.amount;
+        map[cat] = (map[cat] ?? 0.0) + _toDisplayAmount(t);
       }
     }
     return map;
@@ -216,7 +280,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         final cat = (category != null && category.trim().isNotEmpty)
             ? category.trim()
             : "General Income";
-        map[cat] = (map[cat] ?? 0.0) + t.amount;
+        map[cat] = (map[cat] ?? 0.0) + _toDisplayAmount(t);
       }
     }
     return map;
@@ -229,15 +293,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
       final profile = rawProfile.isNotEmpty
           ? rawProfile[0].toUpperCase() + rawProfile.substring(1)
           : "Default";
-      map[profile] = (map[profile] ?? 0.0) + t.amount;
+      map[profile] = (map[profile] ?? 0.0) + _toDisplayAmount(t);
     }
     return map;
   }
 
-  // Updated trend data getter
   Map<String, double> get lineChartTrendData {
     final Map<String, double> trend = {};
-    final targetType = activeVelocityTab; // Filter based on selected tab
+    final targetType = activeVelocityTab;
 
     if (selectedRange == "This Month") {
       final daysInMonth = DateUtils.getDaysInMonth(
@@ -250,7 +313,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       for (final t in filteredTransactions) {
         if (t.transactionType.trim().toLowerCase() == targetType) {
           final dayKey = "${t.date.day}";
-          trend[dayKey] = (trend[dayKey] ?? 0.0) + t.amount;
+          trend[dayKey] = (trend[dayKey] ?? 0.0) + _toDisplayAmount(t);
         }
       }
     } else if (selectedRange == "This Year") {
@@ -274,7 +337,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       for (final t in filteredTransactions) {
         if (t.transactionType.trim().toLowerCase() == targetType) {
           final monthKey = shortMonths[t.date.month - 1];
-          trend[monthKey] = (trend[monthKey] ?? 0.0) + t.amount;
+          trend[monthKey] = (trend[monthKey] ?? 0.0) + _toDisplayAmount(t);
         }
       }
     } else if (selectedRange == "This Week") {
@@ -286,7 +349,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         if (t.transactionType.trim().toLowerCase() == targetType) {
           final dayIndex = t.date.weekday - 1;
           final dayKey = weekDays[dayIndex];
-          trend[dayKey] = (trend[dayKey] ?? 0.0) + t.amount;
+          trend[dayKey] = (trend[dayKey] ?? 0.0) + _toDisplayAmount(t);
         }
       }
     }
@@ -309,7 +372,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     switch (selectedRange) {
       case "Today":
-        // Today (activeDate) vs Yesterday
         curStart = DateTime(activeDate.year, activeDate.month, activeDate.day);
         curEnd = DateTime(
           activeDate.year,
@@ -320,7 +382,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
           59,
           999,
         );
-
         prevStart = curStart.subtract(const Duration(days: 1));
         prevEnd = DateTime(
           prevStart.year,
@@ -335,7 +396,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
         break;
 
       case "This Week":
-        // Current selected week vs previous 7 days
         final today = DateTime(now.year, now.month, now.day);
         curStart = today.subtract(Duration(days: today.weekday - 1));
         curEnd = DateTime(
@@ -347,14 +407,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
           59,
           999,
         );
-
         prevStart = curStart.subtract(const Duration(days: 7));
         prevEnd = curStart.subtract(const Duration(milliseconds: 1));
         periodLabel = "last week";
         break;
 
       case "This Month":
-        // Full active month vs full previous month (regardless of current day)
         final daysInCurMonth = DateUtils.getDaysInMonth(
           activeDate.year,
           activeDate.month,
@@ -390,10 +448,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
         break;
 
       case "This Year":
-        // Full active year vs full previous year
         curStart = DateTime(activeDate.year, 1, 1);
         curEnd = DateTime(activeDate.year, 12, 31, 23, 59, 59, 999);
-
         prevStart = DateTime(activeDate.year - 1, 1, 1);
         prevEnd = DateTime(activeDate.year - 1, 12, 31, 23, 59, 59, 999);
         periodLabel = "last year";
@@ -418,10 +474,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           999,
         );
 
-        // Duration in days of the selected custom window
         final spanDays = curEnd.difference(curStart).inDays + 1;
-
-        // Shift back by the exact same window length
         prevStart = curStart.subtract(Duration(days: spanDays));
         prevEnd = curStart.subtract(const Duration(milliseconds: 1));
         periodLabel = "prev $spanDays days";
@@ -432,23 +485,21 @@ class _InsightsScreenState extends State<InsightsScreen> {
         return {'hasComparison': false};
     }
 
-    // Aggregate current vs previous periods
     for (final t in allTransactions) {
       if (t.transactionType.trim().toLowerCase() != targetType) continue;
 
+      final displayVal = _toDisplayAmount(t);
       if (!t.date.isBefore(curStart) && !t.date.isAfter(curEnd)) {
-        currentAmount += t.amount;
+        currentAmount += displayVal;
       } else if (!t.date.isBefore(prevStart) && !t.date.isAfter(prevEnd)) {
-        previousAmount += t.amount;
+        previousAmount += displayVal;
       }
     }
 
-    // Neither period has data
     if (currentAmount == 0.0 && previousAmount == 0.0) {
       return {'hasComparison': false};
     }
 
-    // Prior period had 0, current period has amount
     if (previousAmount <= 0.0) {
       return {
         'hasComparison': true,
@@ -518,7 +569,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             style: TextStyle(
               color: badgeColor,
               fontSize: 10,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -531,7 +582,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final expenses = filteredTransactions
         .where((t) => t.transactionType.trim().toLowerCase() == "expense")
         .toList();
-    expenses.sort((a, b) => b.amount.compareTo(a.amount));
+    // Sort by converted display amount rather than raw heterogeneous amounts
+    expenses.sort((a, b) => _toDisplayAmount(b).compareTo(_toDisplayAmount(a)));
     return expenses.take(4).toList();
   }
 
@@ -728,7 +780,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
-                                color: colors.purple,
+                                color: colors.hero,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Center(
@@ -989,8 +1041,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                           duration: const Duration(milliseconds: 200),
                           decoration: BoxDecoration(
                             color: hoveredTab == activeType
-                                ? (colors.purpleLight ?? colors.purple)
-                                : colors.purple,
+                                ? (colors.heroLight ?? colors.hero)
+                                : colors.hero,
                             borderRadius: BorderRadius.circular(999),
                           ),
                         ),
@@ -1016,13 +1068,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                     onChanged(type);
                                   }
                                 },
-                                child: Container(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: (!isSelected && isHovered)
-                                        ? colors.cardLight.withValues(
-                                            alpha: 0.35,
-                                          )
+                                    color: !isSelected
+                                        ? (isHovered
+                                              ? colors.secondaryLight
+                                              : colors.secondary)
                                         : Colors.transparent,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
@@ -1078,141 +1131,147 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
             // Top Date Range Dropdown (Matching TransactionListScreen)
             Center(
-              child: StatefulBuilder(
-                builder: (context, setHoverState) {
+              child: Builder(
+                builder: (context) {
                   bool isHovered = false;
-
-                  return Builder(
-                    builder: (buttonContext) {
-                      return MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        onEnter: (_) => setHoverState(() => isHovered = true),
-                        onExit: (_) => setHoverState(() => isHovered = false),
-                        child: AnimatedContainer(
-                          height: 38,
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.easeInOut,
-                          decoration: BoxDecoration(
-                            color: isHovered
-                                ? colors.purpleLight
-                                : colors.purple,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              elevation: 0,
-                              shadowColor: Colors.transparent,
-                              backgroundColor: Colors.transparent,
-                              surfaceTintColor: Colors.transparent,
-                              minimumSize: Size.zero,
-                              overlayColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
+                  return StatefulBuilder(
+                    builder: (context, setHoverState) {
+                      return Builder(
+                        builder: (buttonContext) {
+                          return MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            onEnter: (_) =>
+                                setHoverState(() => isHovered = true),
+                            onExit: (_) =>
+                                setHoverState(() => isHovered = false),
+                            child: AnimatedContainer(
+                              height: 38,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              decoration: BoxDecoration(
+                                color: isHovered
+                                    ? colors.heroLight
+                                    : colors.hero,
                                 borderRadius: BorderRadius.circular(999),
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                              ),
-                            ),
-                            onPressed: () async {
-                              final renderBox =
-                                  buttonContext.findRenderObject()
-                                      as RenderBox;
-                              final overlay =
-                                  Navigator.of(
-                                        context,
-                                      ).overlay!.context.findRenderObject()
-                                      as RenderBox;
-
-                              final target = Rect.fromPoints(
-                                renderBox.localToGlobal(
-                                  Offset.zero,
-                                  ancestor: overlay,
-                                ),
-                                renderBox.localToGlobal(
-                                  renderBox.size.bottomRight(Offset.zero),
-                                  ancestor: overlay,
-                                ),
-                              );
-
-                              final selected = await showMenu<String>(
-                                context: context,
-                                color: colors.card,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                position: RelativeRect.fromRect(
-                                  target,
-                                  Offset.zero & overlay.size,
-                                ),
-                                items: rangeOptions.map((String value) {
-                                  final isSelected = value == selectedRange;
-                                  return PopupMenuItem<String>(
-                                    value: value,
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          value,
-                                          style: TextStyle(
-                                            color: isSelected
-                                                ? colors.purple
-                                                : colors.textPrimary,
-                                            fontWeight: isSelected
-                                                ? FontWeight.bold
-                                                : FontWeight.w500,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                        if (isSelected)
-                                          Icon(
-                                            Icons.check,
-                                            color: colors.purple,
-                                            size: 18,
-                                          ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                              );
-
-                              if (selected == "Custom Date") {
-                                await _pickCustomRange();
-                              } else if (selected != null) {
-                                setState(() {
-                                  selectedRange = selected;
-                                  activeDate = DateTime.now();
-                                  _initControllers();
-                                });
-                              }
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  selectedRange,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  elevation: 0,
+                                  shadowColor: Colors.transparent,
+                                  backgroundColor: Colors.transparent,
+                                  surfaceTintColor: Colors.transparent,
+                                  minimumSize: Size.zero,
+                                  overlayColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                const Icon(
-                                  Icons.keyboard_arrow_down,
-                                  color: Colors.white,
-                                  size: 18,
+                                onPressed: () async {
+                                  final renderBox =
+                                      buttonContext.findRenderObject()
+                                          as RenderBox;
+                                  final overlay =
+                                      Navigator.of(
+                                            context,
+                                          ).overlay!.context.findRenderObject()
+                                          as RenderBox;
+
+                                  final target = Rect.fromPoints(
+                                    renderBox.localToGlobal(
+                                      Offset.zero,
+                                      ancestor: overlay,
+                                    ),
+                                    renderBox.localToGlobal(
+                                      renderBox.size.bottomRight(Offset.zero),
+                                      ancestor: overlay,
+                                    ),
+                                  );
+
+                                  final selected = await showMenu<String>(
+                                    context: context,
+                                    color: colors.card,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    position: RelativeRect.fromRect(
+                                      target,
+                                      Offset.zero & overlay.size,
+                                    ),
+                                    items: rangeOptions.map((String value) {
+                                      final isSelected = value == selectedRange;
+                                      return PopupMenuItem<String>(
+                                        value: value,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              value,
+                                              style: TextStyle(
+                                                color: isSelected
+                                                    ? colors.textPrimary
+                                                    : colors.textPrimary,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.w500
+                                                    : FontWeight.w500,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            if (isSelected)
+                                              Icon(
+                                                Icons.check,
+                                                color: colors.textPrimary,
+                                                size: 18,
+                                              ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                  );
+
+                                  if (selected == "Custom Date") {
+                                    await _pickCustomRange();
+                                  } else if (selected != null) {
+                                    setState(() {
+                                      selectedRange = selected;
+                                      activeDate = DateTime.now();
+                                      _initControllers();
+                                    });
+                                  }
+                                },
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      selectedRange,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.keyboard_arrow_down,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       );
                     },
                   );
                 },
               ),
             ),
+
             _buildTimeframeSlider(),
             // 👇 Full screen width divider directly under the slider
             _buildFullWidthDivider(),
@@ -1220,9 +1279,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             // Main Insights Scroll View
             Expanded(
               child: isLoading
-                  ? Center(
-                      child: CircularProgressIndicator(color: colors.purple),
-                    )
+                  ? Center(child: CircularProgressIndicator(color: colors.hero))
                   : ListView(
                       padding: const EdgeInsets.all(16.0),
                       children: [
@@ -1239,22 +1296,23 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             children: [
                               _buildSummaryRow(
                                 "Income",
-                                "₹${summary['income']!.toStringAsFixed(2)}",
+                                "$activeCurrencySymbol${summary['income']!.toStringAsFixed(2)}",
                                 colors,
                               ),
                               const SizedBox(height: 12),
                               _buildSummaryRow(
                                 "Expenses",
-                                "₹${summary['expense']!.toStringAsFixed(2)}",
+                                "$activeCurrencySymbol${summary['expense']!.toStringAsFixed(2)}",
                                 colors,
                               ),
                               Divider(
                                 height: 24,
-                                color: colors.textSecondary.withOpacity(0.15),
+                                thickness: 1,
+                                color: colors.cardLight.withValues(alpha: 0.6),
                               ),
                               _buildSummaryRow(
                                 "Net Balance",
-                                "₹${summary['net']!.toStringAsFixed(2)}",
+                                "$activeCurrencySymbol${summary['net']!.toStringAsFixed(2)}",
                                 colors,
                               ),
                             ],
@@ -1280,8 +1338,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                 if (t.transactionType.trim().toLowerCase() ==
                                     targetType) {
                                   final dayKey = "${t.date.day}";
-                                  velocityData[dayKey] =
-                                      (velocityData[dayKey] ?? 0.0) + t.amount;
+                                  if (velocityData.containsKey(dayKey)) {
+                                    velocityData[dayKey] =
+                                        velocityData[dayKey]! +
+                                        _toDisplayAmount(t);
+                                  }
                                 }
                               }
                             } else if (selectedRange == "This Year") {
@@ -1308,8 +1369,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   final monthKey =
                                       shortMonths[t.date.month - 1];
                                   velocityData[monthKey] =
-                                      (velocityData[monthKey] ?? 0.0) +
-                                      t.amount;
+                                      velocityData[monthKey]! +
+                                      _toDisplayAmount(t);
                                 }
                               }
                             } else if (selectedRange == "This Week") {
@@ -1331,7 +1392,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   final dayIndex = t.date.weekday - 1;
                                   final dayKey = weekDays[dayIndex];
                                   velocityData[dayKey] =
-                                      (velocityData[dayKey] ?? 0.0) + t.amount;
+                                      velocityData[dayKey]! +
+                                      _toDisplayAmount(t);
                                 }
                               }
                             }
@@ -1367,7 +1429,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                           style: TextStyle(
                                             color: colors.textPrimary,
                                             fontSize: 16,
-                                            fontWeight: FontWeight.bold,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                         _buildVelocityBadge(
@@ -1394,6 +1456,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 16.0,
+                                    vertical: 12.0,
                                   ),
                                   decoration: BoxDecoration(
                                     color: colors.card,
@@ -1401,8 +1464,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   ),
                                   child: AppLineChart(
                                     data: velocityData,
+                                    currencySymbol: activeCurrencySymbol,
                                     lineColor: isExpenseVelocity
-                                        ? colors.purple
+                                        ? colors.hero
                                         : colors.income,
                                     height: 190,
                                   ),
@@ -1411,16 +1475,29 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             );
                           },
                         ),
+
                         // SECTION 3: BREAKDOWN BY CATEGORY / SOURCE (PIE CHART)
                         StatefulBuilder(
                           builder: (context, setBreakdownState) {
                             final isExpense = activeBreakdownTab == "expense";
-                            final currentData = isExpense
-                                ? categories
-                                : incomes;
-                            final currentTotal = isExpense
+
+                            // Ensure data and totals are converted to the active currency
+                            final rawData = isExpense ? categories : incomes;
+                            final Map<String, double> currentData = rawData.map(
+                              (k, v) => MapEntry(
+                                k,
+                                activeCurrencyRate > 0
+                                    ? (v / activeCurrencyRate)
+                                    : v,
+                              ),
+                            );
+
+                            final rawTotal = isExpense
                                 ? (summary['expense'] ?? 0.0)
                                 : (summary['income'] ?? 0.0);
+                            final double currentTotal = activeCurrencyRate > 0
+                                ? (rawTotal / activeCurrencyRate)
+                                : rawTotal;
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1438,7 +1515,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                       style: TextStyle(
                                         color: colors.textPrimary,
                                         fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                     _buildSlidingToggle(
@@ -1454,6 +1531,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                 ),
                                 const SizedBox(height: 20),
                                 Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16.0,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: colors.card,
                                     borderRadius: BorderRadius.circular(16),
@@ -1480,6 +1560,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                       : AppPieChart(
                                           data: currentData,
                                           totalAmount: currentTotal,
+                                          currencySymbol: activeCurrencySymbol,
                                           centerLabel: isExpense
                                               ? "Spent"
                                               : "Earned",
@@ -1499,7 +1580,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           //const SizedBox(height: 8),
@@ -1514,9 +1595,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
                               itemCount: topSpends.length,
                               separatorBuilder: (_, __) => Divider(
                                 height: 1,
-                                color:
-                                    colors.divider?.withOpacity(0.4) ??
-                                    Colors.grey.shade200,
+                                thickness: 1,
+                                color: colors.cardLight.withValues(alpha: 0.6),
+                                indent: 16,
+                                endIndent: 16,
                               ),
                               itemBuilder: (context, i) {
                                 final t = topSpends[i];
@@ -1540,7 +1622,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                     displayTitle,
                                     style: TextStyle(
                                       color: colors.textPrimary,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w500,
                                       fontSize: 14,
                                     ),
                                   ),
@@ -1548,14 +1630,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                     _formatDate(t.date),
                                     style: TextStyle(
                                       color: colors.textSecondary,
-                                      fontSize: 12,
+                                      fontSize: 11,
                                     ),
                                   ),
                                   trailing: Text(
-                                    "₹${t.amount.toStringAsFixed(2)}",
+                                    "-$activeCurrencySymbol${_toDisplayAmount(t).toStringAsFixed(2)}",
                                     style: TextStyle(
-                                      color: colors.textSecondary,
-                                      fontWeight: FontWeight.w500,
+                                      color: colors.expense,
+                                      fontWeight: FontWeight.bold,
                                       fontSize: 13,
                                     ),
                                   ),
@@ -1574,7 +1656,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -1596,7 +1678,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                                   if (i > 0) const SizedBox(height: 12),
                                   _buildSummaryRow(
                                     profiles.entries.elementAt(i).key,
-                                    "₹${profiles.entries.elementAt(i).value.toStringAsFixed(2)}",
+                                    "$activeCurrencySymbol${profiles.entries.elementAt(i).value.toStringAsFixed(2)}",
                                     colors,
                                   ),
                                 ],
@@ -1629,8 +1711,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
           value,
           style: TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: colors.textSecondary,
+            fontWeight: FontWeight.w600,
+            color: colors.textPrimary,
           ),
         ),
       ],

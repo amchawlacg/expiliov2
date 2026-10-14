@@ -4,7 +4,7 @@ import '../models/transaction.dart';
 class TransactionService {
   final DatabaseHelper _database = DatabaseHelper.instance;
 
-  Future<int> addTransaction(TransactionModel transaction) async {
+  Future<String> addTransaction(TransactionModel transaction) async {
     final now = DateTime.now();
 
     // Create new transaction instance setting current timestamps
@@ -32,7 +32,7 @@ class TransactionService {
     return await _database.getTransactionsByDate(date);
   }
 
-  Future<int> deleteTransaction(int id) async {
+  Future<int> deleteTransaction(String id) async {
     // DatabaseHelper performs hard delete locally and enqueues 'DELETE' action
     return await _database.deleteTransaction(id);
   }

@@ -409,18 +409,18 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                       opt,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? colors.purple
+                                            ? colors.textPrimary
                                             : colors.textPrimary,
                                         fontSize: 14,
                                         fontWeight: isSelected
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
+                                            ? FontWeight.w500
+                                            : FontWeight.w500,
                                       ),
                                     ),
                                     if (isSelected)
                                       Icon(
                                         Icons.check,
-                                        color: colors.purple,
+                                        color: colors.textPrimary,
                                         size: 18,
                                       ),
                                   ],
@@ -599,84 +599,41 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                               child: Column(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  InkWell(
-                                                    onTap: () {
-                                                      setModalState(() {
-                                                        tempPayments.clear();
-                                                        tempPayments.add("All");
-                                                      });
-                                                      pSetState(() {});
-                                                    },
-                                                    child: Padding(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 16,
-                                                            vertical: 12,
-                                                          ),
-                                                      child: Row(
-                                                        mainAxisAlignment:
-                                                            MainAxisAlignment
-                                                                .spaceBetween,
-                                                        children: [
-                                                          Text(
-                                                            "All",
-                                                            style: TextStyle(
-                                                              color: isAllActive
-                                                                  ? colors
-                                                                        .purple
-                                                                  : colors
-                                                                        .textPrimary,
-                                                              fontSize: 14,
-                                                              fontWeight:
-                                                                  isAllActive
-                                                                  ? FontWeight
-                                                                        .bold
-                                                                  : FontWeight
-                                                                        .normal,
-                                                            ),
-                                                          ),
-                                                          if (isAllActive)
-                                                            Icon(
-                                                              Icons.check,
-                                                              color:
-                                                                  colors.purple,
-                                                              size: 18,
-                                                            ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const Divider(
-                                                    height: 1,
-                                                    thickness: 0.5,
-                                                  ),
-                                                  ...paymentOptions.where((opt) => opt != "All").map((
-                                                    opt,
-                                                  ) {
+                                                  ...paymentOptions.map((opt) {
                                                     final isSelected =
-                                                        tempPayments.contains(
-                                                          opt,
-                                                        );
+                                                        opt == "All"
+                                                        ? tempPayments.contains(
+                                                            "All",
+                                                          )
+                                                        : tempPayments.contains(
+                                                            opt,
+                                                          );
                                                     return InkWell(
                                                       onTap: () {
                                                         setModalState(() {
-                                                          tempPayments.remove(
-                                                            "All",
-                                                          );
-                                                          if (isSelected) {
-                                                            tempPayments.remove(
-                                                              opt,
+                                                          if (opt == "All") {
+                                                            tempPayments
+                                                                .clear();
+                                                            tempPayments.add(
+                                                              "All",
                                                             );
-                                                            if (tempPayments
-                                                                .isEmpty) {
+                                                          } else {
+                                                            tempPayments.remove(
+                                                              "All",
+                                                            );
+                                                            if (isSelected) {
+                                                              tempPayments
+                                                                  .remove(opt);
+                                                              if (tempPayments
+                                                                  .isEmpty) {
+                                                                tempPayments
+                                                                    .add("All");
+                                                              }
+                                                            } else {
                                                               tempPayments.add(
-                                                                "All",
+                                                                opt,
                                                               );
                                                             }
-                                                          } else {
-                                                            tempPayments.add(
-                                                              opt,
-                                                            );
                                                           }
                                                         });
                                                         pSetState(() {});
@@ -697,24 +654,21 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                                               style: TextStyle(
                                                                 color:
                                                                     isSelected
-                                                                    ? colors
-                                                                          .purple
-                                                                    : colors
-                                                                          .textPrimary,
+                                                                    ? colors.textPrimary
+                                                                    : colors.textPrimary,
                                                                 fontSize: 14,
                                                                 fontWeight:
                                                                     isSelected
                                                                     ? FontWeight
-                                                                          .bold
+                                                                          .w500
                                                                     : FontWeight
-                                                                          .normal,
+                                                                          .w500,
                                                               ),
                                                             ),
                                                             if (isSelected)
                                                               Icon(
                                                                 Icons.check,
-                                                                color: colors
-                                                                    .purple,
+                                                                color: colors.textPrimary,                                                                    
                                                                 size: 18,
                                                               ),
                                                           ],
@@ -836,84 +790,40 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                               child: Column(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  InkWell(
-                                                    onTap: () {
-                                                      setModalState(() {
-                                                        tempCategories.clear();
-                                                        tempCategories.add(
-                                                          "All",
-                                                        );
-                                                      });
-                                                      menuSetState(() {});
-                                                    },
-                                                    child: Padding(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 16,
-                                                            vertical: 12,
-                                                          ),
-                                                      child: Row(
-                                                        mainAxisAlignment:
-                                                            MainAxisAlignment
-                                                                .spaceBetween,
-                                                        children: [
-                                                          Text(
-                                                            "All",
-                                                            style: TextStyle(
-                                                              color: isAllActive
-                                                                  ? colors
-                                                                        .purple
-                                                                  : colors
-                                                                        .textPrimary,
-                                                              fontSize: 14,
-                                                              fontWeight:
-                                                                  isAllActive
-                                                                  ? FontWeight
-                                                                        .bold
-                                                                  : FontWeight
-                                                                        .normal,
-                                                            ),
-                                                          ),
-                                                          if (isAllActive)
-                                                            Icon(
-                                                              Icons.check,
-                                                              color:
-                                                                  colors.purple,
-                                                              size: 18,
-                                                            ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const Divider(
-                                                    height: 1,
-                                                    thickness: 0.5,
-                                                  ),
-                                                  ...sortedCategories.map((
-                                                    cat,
-                                                  ) {
+                                                  ...[
+                                                    "All",
+                                                    ...sortedCategories,
+                                                  ].map((cat) {
                                                     final isSelected =
-                                                        tempCategories.contains(
-                                                          cat,
-                                                        );
+                                                        cat == "All"
+                                                        ? tempCategories
+                                                              .contains("All")
+                                                        : tempCategories
+                                                              .contains(cat);
                                                     return InkWell(
                                                       onTap: () {
                                                         setModalState(() {
-                                                          tempCategories.remove(
-                                                            "All",
-                                                          );
-                                                          if (isSelected) {
+                                                          if (cat == "All") {
                                                             tempCategories
-                                                                .remove(cat);
-                                                            if (tempCategories
-                                                                .isEmpty) {
-                                                              tempCategories
-                                                                  .add("All");
-                                                            }
-                                                          } else {
+                                                                .clear();
                                                             tempCategories.add(
-                                                              cat,
+                                                              "All",
                                                             );
+                                                          } else {
+                                                            tempCategories
+                                                                .remove("All");
+                                                            if (isSelected) {
+                                                              tempCategories
+                                                                  .remove(cat);
+                                                              if (tempCategories
+                                                                  .isEmpty) {
+                                                                tempCategories
+                                                                    .add("All");
+                                                              }
+                                                            } else {
+                                                              tempCategories
+                                                                  .add(cat);
+                                                            }
                                                           }
                                                         });
                                                         menuSetState(() {});
@@ -939,25 +849,22 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                                                 style: TextStyle(
                                                                   color:
                                                                       isSelected
-                                                                      ? colors
-                                                                            .purple
-                                                                      : colors
-                                                                            .textPrimary,
+                                                                      ? colors.textPrimary
+                                                                      : colors.textPrimary,
                                                                   fontSize: 14,
                                                                   fontWeight:
                                                                       isSelected
                                                                       ? FontWeight
-                                                                            .bold
+                                                                            .w500
                                                                       : FontWeight
-                                                                            .normal,
+                                                                            .w500,
                                                                 ),
                                                               ),
                                                             ),
                                                             if (isSelected)
                                                               Icon(
                                                                 Icons.check,
-                                                                color: colors
-                                                                    .purple,
+                                                                color: colors.textPrimary,
                                                                 size: 18,
                                                               ),
                                                           ],
@@ -1028,9 +935,9 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                   duration: const Duration(milliseconds: 200),
                                   curve: Curves.easeInOut,
                                   decoration: BoxDecoration(
-                                    color: colors.cardLight.withValues(
-                                      alpha: isResetHovered ? 0.20 : 0.0,
-                                    ),
+                                    color: isResetHovered
+                                        ? colors.secondaryLight
+                                        : colors.secondary,
                                     borderRadius: BorderRadius.circular(999),
                                     border: Border.all(
                                       color: colors.cardLight.withValues(
@@ -1091,8 +998,8 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                   curve: Curves.easeInOut,
                                   decoration: BoxDecoration(
                                     color: isApplyHovered
-                                        ? colors.purpleLight
-                                        : colors.purple,
+                                        ? colors.heroLight
+                                        : colors.hero,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: ElevatedButton(
@@ -1699,7 +1606,7 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                           child: GestureDetector(
                             onTap: _navigateBackHierarchy,
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: _isBackHovered
@@ -1736,8 +1643,8 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                             curve: Curves.easeInOut,
                             decoration: BoxDecoration(
                               color: _isGroupDropdownHovered
-                                  ? colors.purpleLight
-                                  : colors.purple,
+                                  ? colors.heroLight
+                                  : colors.hero,
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: ElevatedButton(
@@ -1798,10 +1705,10 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                             group.label,
                                             style: TextStyle(
                                               color: isSelected
-                                                  ? colors.purple
+                                                  ? colors.textPrimary
                                                   : colors.textPrimary,
                                               fontWeight: isSelected
-                                                  ? FontWeight.bold
+                                                  ? FontWeight.w500
                                                   : FontWeight.w500,
                                               fontSize: 14,
                                             ),
@@ -1809,7 +1716,7 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                           if (isSelected)
                                             Icon(
                                               Icons.check,
-                                              color: colors.purple,
+                                              color: colors.textPrimary,
                                               size: 18,
                                             ),
                                         ],
@@ -1862,7 +1769,7 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                           behavior: HitTestBehavior.opaque,
                           onTap: _openFilterSheet,
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
+                            duration: const Duration(milliseconds: 200),
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               color: _isFilterHovered
@@ -1890,7 +1797,7 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                                       width: 7,
                                       height: 7,
                                       decoration: BoxDecoration(
-                                        color: colors.purple,
+                                        color: colors.hero,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -1905,7 +1812,6 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
                 ),
               ),
 
-              
               // Breadcrumb Navigation
               _buildBreadcrumbBar(colors),
               _buildFullWidthDivider(),
@@ -1914,7 +1820,7 @@ class _InvoiceGalleryScreenState extends State<InvoiceGalleryScreen> {
               Expanded(
                 child: _isLoading
                     ? Center(
-                        child: CupertinoActivityIndicator(color: colors.purple),
+                        child: CupertinoActivityIndicator(color: colors.hero),
                       )
                     : _buildHierarchyBody(colors),
               ),

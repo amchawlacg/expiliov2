@@ -9,14 +9,22 @@ import '../constants/app_colors.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/expense_categories.dart'; // Adjust path if located elsewhere, e.g., '../models/default_categories.dart'
+import '../database/database_helper.dart';
+
+import '../services/preference_service.dart'; // Adjust path if located elsewhere
+import '../constants/currency_constants.dart';
+import '../widgets/app_snackbar.dart';
+import '../services/sync_service.dart';
+
 class TransactionListScreen extends StatefulWidget {
   const TransactionListScreen({super.key});
 
   @override
-  State<TransactionListScreen> createState() => _TransactionListScreenState();
+  State<TransactionListScreen> createState() => TransactionListScreenState();
 }
 
-class _TransactionListScreenState extends State<TransactionListScreen> {
+class TransactionListScreenState extends State<TransactionListScreen> {
   final TransactionService transactionService = TransactionService();
 
   List<TransactionModel> allTransactions = [];
@@ -32,6 +40,10 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
   DateTime? customFromDate;
   DateTime? customToDate;
+
+  String activeCurrencyCode = "USD";
+  String activeCurrencySymbol = "\$";
+  double activeCurrencyRate = 1.0;
 
   // Active focused date on the horizontal wheel
   DateTime activeDate = DateTime.now();
@@ -78,6 +90,17 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     super.initState();
     _initControllers();
     loadTransactions();
+    loadCurrency();
+
+    // 🔔 Listen for remote data sync/hydration events
+    SyncService.onDataChanged.addListener(_onSyncComplete);
+  }
+
+  void _onSyncComplete() {
+    if (mounted) {
+      loadTransactions();
+      loadCurrency();
+    }
   }
 
   void _initControllers() {
@@ -101,6 +124,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
   @override
   void dispose() {
+    SyncService.onDataChanged.removeListener(_onSyncComplete);
     _dayPageController?.dispose();
     _monthPageController?.dispose();
     _yearPageController?.dispose();
@@ -113,6 +137,44 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     setState(() {
       allTransactions = data;
     });
+  }
+
+  Future<void> loadCurrency() async {
+    final rawCurrency = await PreferencesService.getBaseCurrency();
+    final code = rawCurrency.split(' ').first.trim();
+
+    if (code.isEmpty) return;
+
+    // Default fallbacks from CurrencyConstants
+    final defaultSymbol = CurrencyConstants.getSymbol(code);
+    final defaultRate = CurrencyConstants.getDefaultExchangeRate(code);
+
+    final db = await DatabaseHelper.instance.database;
+    final currencyData = await db.query(
+      'currencies',
+      where: 'code = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+
+    if (!mounted) return;
+
+    if (currencyData.isNotEmpty) {
+      setState(() {
+        activeCurrencyCode = code;
+        activeCurrencySymbol =
+            currencyData.first['symbol'] as String? ?? defaultSymbol;
+        // Always load the true rate to USD anchor from SQLite (EUR = 1.08, CAD = 0.73, USD = 1.0)
+        activeCurrencyRate =
+            (currencyData.first['rate_to_base'] as num?)?.toDouble() ?? defaultRate;
+      });
+    } else {
+      setState(() {
+        activeCurrencyCode = code;
+        activeCurrencySymbol = defaultSymbol;
+        activeCurrencyRate = defaultRate;
+      });
+    }
   }
 
   String _formatDate(DateTime? dt) {
@@ -194,12 +256,22 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
           .toList();
     }
 
-    // Amount Range Filter
-    if (minAmountFilter != null) {
-      list = list.where((t) => t.amount >= minAmountFilter!).toList();
-    }
-    if (maxAmountFilter != null) {
-      list = list.where((t) => t.amount <= maxAmountFilter!).toList();
+    // Amount Range Filter (Evaluated against the user's active currency)
+    if (minAmountFilter != null || maxAmountFilter != null) {
+      list = list.where((t) {
+        // Convert transaction's base amount to currently viewed currency
+        final convertedAmount = activeCurrencyRate > 0
+            ? (t.baseAmount / activeCurrencyRate)
+            : t.baseAmount;
+
+        if (minAmountFilter != null && convertedAmount < minAmountFilter!) {
+          return false;
+        }
+        if (maxAmountFilter != null && convertedAmount > maxAmountFilter!) {
+          return false;
+        }
+        return true;
+      }).toList();
     }
 
     // Profile Filter (All, Personal, Business)
@@ -227,27 +299,28 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     } else if (selectedSort == "Oldest First") {
       list.sort((a, b) => a.date.compareTo(b.date));
     } else if (selectedSort == "Amount: High to Low") {
-      list.sort((a, b) => b.amount.compareTo(a.amount));
+      list.sort((a, b) => b.baseAmount.compareTo(a.baseAmount));
     } else if (selectedSort == "Amount: Low to High") {
-      list.sort((a, b) => a.amount.compareTo(b.amount));
+      list.sort((a, b) => a.baseAmount.compareTo(b.baseAmount));
     }
 
     return list;
   }
 
   double get totalAmount {
-    return filteredTransactions.fold(0.0, (sum, item) {
-      final type = item.transactionType.toLowerCase();
-      // Use baseAmount so multi-currency amounts sum accurately to USD
-      final val = item.baseAmount;
-      if (type == "income") {
-        return sum + val;
-      } else if (type == "expense") {
-        return sum - val;
-      }
-      return sum;
-    });
-  }
+  final rawBaseTotal = filteredTransactions.fold(0.0, (sum, item) {
+    final type = item.transactionType.toLowerCase();
+    final val = item.baseAmount;
+    if (type == "income") return sum + val;
+    if (type == "expense") return sum - val;
+    return sum;
+  });
+
+  // USD total converted to active view currency (e.g. Total USD / 1.08 = EUR)
+  return activeCurrencyRate > 0
+      ? (rawBaseTotal / activeCurrencyRate)
+      : rawBaseTotal;
+}
 
   Widget _buildCardContainer(List<Widget> children) {
     return Container(
@@ -463,15 +536,15 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                               () => isCustomApplyHovered = false,
                             ),
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
+                              duration: const Duration(milliseconds: 150),
                               curve: Curves.easeInOut,
                               decoration: BoxDecoration(
                                 color: isCustomApplyHovered
                                     ? Color.alphaBlend(
-                                        Colors.black.withValues(alpha: 0.25),
-                                        colors.purple,
+                                        colors.heroLight,
+                                        colors.hero,
                                       )
-                                    : colors.purple,
+                                    : colors.hero,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: ElevatedButton(
@@ -533,14 +606,8 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     final typeOptions = ["All", "Expense", "Income", "Transfer"];
     final profileOptions = ["All", "Personal", "Business"];
 
-    // Extract all unique categories present in the loaded transactions
-    final Set<String> distinctCategories = {};
-    for (var t in allTransactions) {
-      if (t.category != null && t.category!.trim().isNotEmpty) {
-        distinctCategories.add(t.category!.trim());
-      }
-    }
-    final sortedCategories = distinctCategories.toList()..sort();
+    final sortedCategories =
+        DefaultCategories.defaults.map((c) => c.name).toList()..sort();
 
     // Working state inside the bottom sheet
     String tempTypeFilter = selectedTypeFilter;
@@ -621,7 +688,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                               style: TextStyle(
                                 color: colors.textPrimary,
                                 fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -634,7 +701,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
                           ),
                         ),
@@ -689,18 +756,18 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                             opt,
                                             style: TextStyle(
                                               color: isSelected
-                                                  ? colors.purple
+                                                  ? colors.textPrimary
                                                   : colors.textPrimary,
                                               fontSize: 14,
                                               fontWeight: isSelected
-                                                  ? FontWeight.bold
-                                                  : FontWeight.normal,
+                                                  ? FontWeight.w500
+                                                  : FontWeight.w500,
                                             ),
                                           ),
                                           if (isSelected)
                                             Icon(
                                               Icons.check,
-                                              color: colors.purple,
+                                              color: colors.textPrimary,
                                               size: 18,
                                             ),
                                         ],
@@ -756,7 +823,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
                           ),
                         ),
@@ -844,33 +911,30 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                                             style: TextStyle(
                                                               color: isAllActive
                                                                   ? colors
-                                                                        .purple
+                                                                        .textPrimary
                                                                   : colors
                                                                         .textPrimary,
                                                               fontSize: 14,
                                                               fontWeight:
                                                                   isAllActive
                                                                   ? FontWeight
-                                                                        .bold
+                                                                        .w500
                                                                   : FontWeight
-                                                                        .normal,
+                                                                        .w500,
                                                             ),
                                                           ),
                                                           if (isAllActive)
                                                             Icon(
                                                               Icons.check,
-                                                              color:
-                                                                  colors.purple,
+                                                              color: colors
+                                                                  .textPrimary,
                                                               size: 18,
                                                             ),
                                                         ],
                                                       ),
                                                     ),
                                                   ),
-                                                  const Divider(
-                                                    height: 1,
-                                                    thickness: 0.5,
-                                                  ),
+
                                                   // Individual Category Rows
                                                   ...sortedCategories.map((
                                                     cat,
@@ -923,16 +987,16 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                                                   color:
                                                                       isSelected
                                                                       ? colors
-                                                                            .purple
+                                                                            .textPrimary
                                                                       : colors
                                                                             .textPrimary,
                                                                   fontSize: 14,
                                                                   fontWeight:
                                                                       isSelected
                                                                       ? FontWeight
-                                                                            .bold
+                                                                            .w500
                                                                       : FontWeight
-                                                                            .normal,
+                                                                            .w500,
                                                                 ),
                                                               ),
                                                             ),
@@ -940,7 +1004,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                                               Icon(
                                                                 Icons.check,
                                                                 color: colors
-                                                                    .purple,
+                                                                    .textPrimary,
                                                                 size: 18,
                                                               ),
                                                           ],
@@ -997,56 +1061,125 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // 3. Transaction Type (Expense, Income, Transfer, All)
+                        // 3. Transaction Type Dropdown
                         Text(
                           "TYPE",
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Column(
-                          children: typeOptions.map((type) {
-                            final isSelected = tempTypeFilter == type;
-                            return InkWell(
-                              onTap: () =>
-                                  setModalState(() => tempTypeFilter = type),
-                              borderRadius: BorderRadius.circular(10),
-                              child: Padding(
+                        const SizedBox(height: 8),
+                        Builder(
+                          builder: (typeCtx) {
+                            return GestureDetector(
+                              onTap: () async {
+                                final renderBox =
+                                    typeCtx.findRenderObject() as RenderBox;
+                                final overlay =
+                                    Navigator.of(
+                                          context,
+                                        ).overlay!.context.findRenderObject()
+                                        as RenderBox;
+
+                                final position = RelativeRect.fromRect(
+                                  Rect.fromPoints(
+                                    renderBox.localToGlobal(
+                                      Offset.zero,
+                                      ancestor: overlay,
+                                    ),
+                                    renderBox.localToGlobal(
+                                      renderBox.size.bottomRight(Offset.zero),
+                                      ancestor: overlay,
+                                    ),
+                                  ),
+                                  Offset.zero & overlay.size,
+                                );
+
+                                final selected = await showMenu<String>(
+                                  context: context,
+                                  color: colors.card,
+                                  elevation: 6,
+                                  constraints: BoxConstraints(
+                                    minWidth: renderBox.size.width,
+                                    maxWidth: renderBox.size.width,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  position: position,
+                                  items: typeOptions.map((opt) {
+                                    final isSelected = opt == tempTypeFilter;
+                                    return PopupMenuItem<String>(
+                                      value: opt,
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            opt,
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? colors.textPrimary
+                                                  : colors.textPrimary,
+                                              fontSize: 14,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w500
+                                                  : FontWeight.w500,
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            Icon(
+                                              Icons.check,
+                                              color: colors.textPrimary,
+                                              size: 18,
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                );
+
+                                if (selected != null) {
+                                  setModalState(
+                                    () => tempTypeFilter = selected,
+                                  );
+                                }
+                              },
+                              child: Container(
+                                height: 44,
+                                alignment: Alignment.center,
                                 padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
-                                  horizontal: 4,
+                                  horizontal: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colors.cardLight,
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      type,
+                                      tempTypeFilter,
                                       style: TextStyle(
+                                        color: colors.textPrimary,
                                         fontSize: 14,
-                                        color: isSelected
-                                            ? colors.purple
-                                            : colors.textPrimary,
-                                        fontWeight: isSelected
-                                            ? FontWeight.bold
-                                            : FontWeight.w500,
+                                        fontWeight: FontWeight.normal,
                                       ),
                                     ),
-                                    if (isSelected)
-                                      Icon(
-                                        Icons.check,
-                                        color: colors.purple,
-                                        size: 18,
-                                      ),
+                                    Icon(
+                                      Icons.keyboard_arrow_down,
+                                      size: 20,
+                                      color: colors.textSecondary,
+                                    ),
                                   ],
                                 ),
                               ),
                             );
-                          }).toList(),
+                          },
                         ),
                         const SizedBox(height: 14),
 
@@ -1056,7 +1189,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
                           ),
                         ),
@@ -1082,7 +1215,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                     fontSize: 14,
                                   ),
                                   decoration: InputDecoration(
-                                    hintText: "Min (\$)",
+                                    hintText: "Min ($activeCurrencySymbol)",
                                     hintStyle: TextStyle(
                                       color: colors.textSecondary.withOpacity(
                                         0.5,
@@ -1123,7 +1256,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                     fontSize: 14,
                                   ),
                                   decoration: InputDecoration(
-                                    hintText: "Max (\$)",
+                                    hintText: "Max ($activeCurrencySymbol)",
                                     hintStyle: TextStyle(
                                       color: colors.textSecondary.withOpacity(
                                         0.5,
@@ -1232,8 +1365,8 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                   curve: Curves.easeInOut,
                                   decoration: BoxDecoration(
                                     color: isApplyHovered
-                                        ? colors.purpleLight
-                                        : colors.purple,
+                                        ? colors.heroLight
+                                        : colors.hero,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: ElevatedButton(
@@ -1252,18 +1385,34 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                       ),
                                     ),
                                     onPressed: () {
+                                      final parsedMin = double.tryParse(
+                                        minController.text.trim(),
+                                      );
+                                      final parsedMax = double.tryParse(
+                                        maxController.text.trim(),
+                                      );
+
+                                      // Validation: Check if min is greater than max
+                                      if (parsedMin != null &&
+                                          parsedMax != null &&
+                                          parsedMin > parsedMax) {
+                                        HapticFeedback.vibrate();
+                                        context.showSnackBar(
+                                          "Max amount must be greater than or equal to Min amount.",
+                                          type: SnackBarType.error,
+                                        );
+                                        return;
+                                      }
+
                                       setState(() {
                                         selectedTypeFilter = tempTypeFilter;
                                         selectedProfileFilter =
                                             tempProfileFilter;
                                         selectedCategories = tempCategories;
-                                        minAmountFilter = double.tryParse(
-                                          minController.text,
-                                        );
-                                        maxAmountFilter = double.tryParse(
-                                          maxController.text,
-                                        );
+                                        minAmountFilter = parsedMin;
+                                        maxAmountFilter = parsedMax;
                                       });
+
                                       Navigator.pop(ctx);
                                     },
                                     child: const Text(
@@ -1338,7 +1487,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1364,15 +1513,19 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                               style: TextStyle(
                                 fontSize: 14,
                                 color: isSelected
-                                    ? colors.purple
+                                    ? colors.textPrimary
                                     : colors.textPrimary,
                                 fontWeight: isSelected
-                                    ? FontWeight.bold
+                                    ? FontWeight.w500
                                     : FontWeight.w500,
                               ),
                             ),
                             if (isSelected)
-                              Icon(Icons.check, color: colors.purple, size: 18),
+                              Icon(
+                                Icons.check,
+                                color: colors.textPrimary,
+                                size: 18,
+                              ),
                           ],
                         ),
                       ),
@@ -1610,8 +1763,8 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           curve: Curves.easeInOut,
                           decoration: BoxDecoration(
                             color: _isRangeDropdownHovered
-                                ? colors.purpleLight
-                                : colors.purple,
+                                ? colors.heroLight
+                                : colors.hero,
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: ElevatedButton(
@@ -1671,10 +1824,10 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                           value,
                                           style: TextStyle(
                                             color: isSelected
-                                                ? colors.purple
+                                                ? colors.textPrimary
                                                 : colors.textPrimary,
                                             fontWeight: isSelected
-                                                ? FontWeight.bold
+                                                ? FontWeight.w500
                                                 : FontWeight.w500,
                                             fontSize: 14,
                                           ),
@@ -1682,7 +1835,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                                         if (isSelected)
                                           Icon(
                                             Icons.check,
-                                            color: colors.purple,
+                                            color: colors.textPrimary,
                                             size: 18,
                                           ),
                                       ],
@@ -1733,6 +1886,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                       children: [
                         // 1. Filter Button
                         MouseRegion(
+                          //aman
                           cursor: SystemMouseCursors.click,
                           onEnter: (_) =>
                               setState(() => _isFilterHovered = true),
@@ -1742,7 +1896,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                             behavior: HitTestBehavior.opaque,
                             onTap: _openFilterSheet,
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: _isFilterHovered
@@ -1774,7 +1928,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                             behavior: HitTestBehavior.opaque,
                             onTap: _openSortSheet,
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: _isSortHovered
@@ -1803,7 +1957,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
 
             const SizedBox(height: 12),
 
-            // 2. Dynamic Total for Range (in base currency USD)
+            // 2. Dynamic Total for Range (in active selected currency)
             Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -1815,7 +1969,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                   child: Padding(
                     padding: const EdgeInsets.only(right: 6.0),
                     child: Text(
-                      "\$",
+                      activeCurrencySymbol,
                       style: TextStyle(
                         fontSize: 20,
                         color:
@@ -1863,6 +2017,8 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
                           final transaction = currentList[itemIndex];
                           return TransactionCard(
                             transaction: transaction,
+                            baseCurrency: activeCurrencyCode,
+                            currencyRate: activeCurrencyRate,
                             onTap: () async {
                               await Navigator.push(
                                 context,
@@ -1890,6 +2046,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
       ),
 
       floatingActionButton: MouseRegion(
+        //aman
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _isAddButtonHovered = true),
         onExit: (_) => setState(() => _isAddButtonHovered = false),
@@ -1904,23 +2061,20 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
             );
             loadTransactions();
           },
-          child: AnimatedSwitcher(
+          child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            switchInCurve: Curves.easeInOut,
-            switchOutCurve: Curves.easeInOut,
-            transitionBuilder: (Widget child, Animation<double> animation) {
-              return FadeTransition(opacity: animation, child: child);
-            },
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: _isAddButtonHovered
+                  ? colors.heroBackground
+                  : colors.heroBackground.withValues(alpha: 0),
+              borderRadius: BorderRadius.circular(999),
+            ),
             child: SvgPicture.asset(
-              _isAddButtonHovered
-                  ? 'assets/icons/components/add.svg'
-                  : 'assets/icons/components/add_outline.svg',
-              key: ValueKey<bool>(
-                _isAddButtonHovered,
-              ), // 👈 Essential for AnimatedSwitcher to detect the change
-              width: 42,
-              height: 42,
-              colorFilter: ColorFilter.mode(colors.purple, BlendMode.srcIn),
+              'assets/icons/components/add.svg',
+              width: 40,
+              height: 40,
+              colorFilter: ColorFilter.mode(colors.hero, BlendMode.srcIn),
             ),
           ),
         ),
